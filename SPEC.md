@@ -130,10 +130,6 @@ uses @wasmer/sdk to run Linux commands. uses `sharrattj/coreutils` package from 
 ```bash
 pnpm add @wasmer/sdk
 ```
-
-- Node.js 22+: `import { init, Wasmer, Directory } from "@wasmer/sdk"`
-- Node.js < 22: `import { init, Wasmer, Directory } from "@wasmer/sdk/node"`
-
 provides:
 - `Directory` class for virtual filesystem (writeFile, readFile, readDir, mount into WASM)
 - stdout/stderr capture via `instance.wait()` or streaming

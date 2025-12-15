@@ -1031,3 +1031,209 @@ User Code → VirtualMachine.spawn(cmd)
 - pros: full control, can run arbitrary shell scripts
 - cons: requires building custom WASM binary in Rust/C
 - implementation: use Node.js native WASI (not @wasmer/sdk) with custom imports
+
+---
+
+## 17. wasmer-js source code analysis
+
+deep dive into the wasmer-js codebase to understand how to add custom bridge imports.
+
+### repo structure
+
+```
+wasmer-js/
+├── src/                    # Rust source (compiled to WASM via wasm-bindgen)
+│   ├── lib.rs             # entry point, exports wat2wasm, set*Url
+│   ├── wasmer.rs          # Wasmer class, Command class, fromRegistry/fromFile
+│   ├── run.rs             # runWasix function
+│   ├── instance.rs        # Instance class (stdin/stdout/stderr/wait)
+│   ├── runtime.rs         # Runtime class, implements wasmer_wasix::Runtime trait
+│   ├── js_runtime.rs      # JsRuntime wrapper for Arc<Runtime>
+│   ├── options.rs         # RunOptions, SpawnOptions, CommonOptions
+│   └── tasks/             # thread pool, worker management
+│       └── task_wasm.rs   # SpawnWasm, builds ctx and store for WASM execution
+├── src-js/                # TypeScript entry points
+│   ├── index.ts           # browser entry
+│   └── node.ts            # Node.js entry
+└── Cargo.toml             # dependencies: wasmer-wasix 0.601.0, wasmer 6.1.0
+```
+
+### key call chain for Command.run()
+
+```
+JavaScript:
+  pkg.commands["node"].run(options)
+
+Rust (wasmer-js):
+  wasmer.rs:Command::run()
+    → creates WasiRunner
+    → calls tasks.task_dedicated(...)
+    → runner.run_command(&command_name, &pkg, runtime)
+
+Rust (wasmer-wasix crate):
+  WasiRunner::run_command()
+    → creates TaskWasm
+    → task_wasm.rs:SpawnWasm::execute()
+      → build_ctx_and_store()
+        → WasiFunctionEnv::new_with_store(module, env, ...)
+          → state/func_env.rs:42-96
+          → calls env.instantiate(...)
+
+  state/env.rs:WasiEnv::instantiate() lines 412-509:
+    → import_object = import_object_for_all_wasi_versions(...)  # line 486
+    → Instance::new(&mut store, &module, &import_object)        # line 496
+```
+
+### import generation (where WASI imports come from)
+
+in `wasmer/lib/wasix/src/lib.rs`:
+
+```rust
+fn import_object_for_all_wasi_versions(
+    _module: &wasmer::Module,
+    store: &mut impl AsStoreMut,
+    env: &FunctionEnv<WasiEnv>,
+) -> Imports {
+    let exports_wasi_generic = wasi_exports_generic(store, env);
+    let exports_wasi_unstable = wasi_unstable_exports(store, env);
+    let exports_wasi_snapshot_preview1 = wasi_snapshot_preview1_exports(store, env);
+    let exports_wasix_32v1 = wasix_exports_32(store, env);
+    let exports_wasix_64v1 = wasix_exports_64(store, env);
+
+    imports! {
+        "wasi" => exports_wasi_generic,
+        "wasi_unstable" => exports_wasi_unstable,
+        "wasi_snapshot_preview1" => exports_wasi_snapshot_preview1,
+        "wasix_32v1" => exports_wasix_32v1,
+        "wasix_64v1" => exports_wasix_64v1,
+    }
+}
+```
+
+**key insight**: imports are hardcoded to WASI/WASIX namespaces only. there is NO hook to add custom imports like `bridge.*`.
+
+### the problem
+
+to add custom bridge imports, we need to:
+1. modify `import_object_for_all_wasi_versions()` to accept additional imports
+2. thread an `additional_imports` parameter through:
+   - `WasiEnv::instantiate()`
+   - `WasiFunctionEnv::new_with_store()`
+   - `TaskWasm` struct
+   - `WasiRunner` options
+   - `Command::run()` options in wasmer-js
+   - `SpawnOptions` TypeScript type
+
+this requires modifications in **two crates**:
+- `wasmer-wasix` (deep core)
+- `wasmer-js` (SDK layer)
+
+### solution options
+
+#### option 1: fork and patch (recommended for experimentation)
+
+fork both repos and add the custom import support:
+
+**wasmer-wasix changes:**
+
+```rust
+// state/env.rs:instantiate()
+pub(crate) fn instantiate(
+    self,
+    module: Module,
+    store: &mut impl AsStoreMut,
+    memory: Option<Memory>,
+    update_layout: bool,
+    call_initialize: bool,
+    parent_linker_and_ctx: Option<(Linker, &mut FunctionEnvMut<WasiEnv>)>,
+    additional_imports: Option<Imports>,  // NEW
+) -> Result<(Instance, WasiFunctionEnv), WasiThreadError> {
+    // ...
+    let mut import_object = import_object_for_all_wasi_versions(&module, &mut store, &func_env.env);
+
+    // NEW: extend with custom imports
+    if let Some(extra) = additional_imports {
+        import_object.extend(&extra);
+    }
+
+    let instance = Instance::new(&mut store, &module, &import_object)?;
+    // ...
+}
+```
+
+**wasmer-js changes:**
+
+```typescript
+// options.ts - add to SpawnOptions
+export type SpawnOptions = CommonOptions & {
+    uses?: string[];
+    customImports?: Record<string, Record<string, Function>>;  // NEW
+}
+```
+
+```rust
+// wasmer.rs:Command::run() - pass through to runner
+// task_wasm.rs - thread through SpawnWasm
+// Eventually reaches WasiEnv::instantiate()
+```
+
+#### option 2: bypass SDK entirely (simplest)
+
+don't use `Command.run()` at all. instead:
+
+1. use `command.binary()` to get raw WASM bytes
+2. use native `WebAssembly.instantiate()` with:
+   - WASI polyfill (or wasmer-wasi-js shim)
+   - custom bridge imports
+
+```typescript
+import { init, Wasmer } from "@wasmer/sdk/node";
+
+// Load package to get the WASM binary
+const pkg = await Wasmer.fromFile(webcBytes);
+const wasmBytes = pkg.commands["node"].binary();
+
+// Create our own imports
+const wasiPolyfill = createWasiPolyfill();  // custom or from library
+const bridgeImports = {
+    spawn_node: (ptr, len) => { /* handle */ },
+};
+
+const { instance } = await WebAssembly.instantiate(wasmBytes, {
+    wasi_snapshot_preview1: wasiPolyfill,
+    bridge: bridgeImports,
+});
+
+instance.exports._start();
+```
+
+**pros**: no fork needed, works today
+**cons**: lose @wasmer/sdk's WASIX implementation (threads, networking, etc.)
+
+#### option 3: contribute upstream
+
+create a PR to wasmer-wasix adding an `additional_imports` mechanism:
+- add `ImportExtension` trait or callback
+- thread through the instantiation path
+- expose in wasmer-js SDK
+
+**pros**: cleanest long-term solution
+**cons**: requires upstream acceptance
+
+### files to modify (option 1)
+
+| repo | file | change |
+|------|------|--------|
+| wasmer-wasix | `src/state/env.rs` | add `additional_imports` param to `instantiate()` |
+| wasmer-wasix | `src/state/func_env.rs` | add param to `new_with_store()` |
+| wasmer-wasix | `src/runtime/task_manager/mod.rs` | add field to `TaskWasm` |
+| wasmer-wasix | `src/runners/wasi/runner.rs` | thread through runner |
+| wasmer-js | `src/options.rs` | add `customImports` to `SpawnOptions` |
+| wasmer-js | `src/wasmer.rs` | parse and thread imports through `Command::run()` |
+| wasmer-js | `src/tasks/task_wasm.rs` | include in `SpawnWasm` |
+
+### conclusion
+
+the wasmer-js SDK is architected for **isolated execution** - there is no extensibility point for custom WASM imports. adding this capability requires modifying the core `wasmer-wasix` crate's instantiation path.
+
+for a proof-of-concept, **option 2** (bypass SDK, use raw WebAssembly.instantiate) is fastest. for production use, **option 1** (fork and patch) or **option 3** (upstream contribution) would be needed.
