@@ -541,3 +541,126 @@ for MVP, the **hybrid routing** approach remains viable:
 - route linux commands → @wasmer/sdk
 - route node commands → NodeProcess directly
 - skip shell script support initially
+
+---
+
+## 11. test WASIX syscall interception
+
+comprehensive test to explore all possible ways to intercept WASIX syscalls in @wasmer/sdk.
+
+create `test11-wasix-syscall-intercept.ts`:
+
+```typescript
+import { init, Wasmer, Directory, runWasix, wat2wasm, Runtime } from "@wasmer/sdk/node";
+
+async function main(): Promise<void> {
+  await init();
+
+  // Test 1: Inspect Runtime class for hidden customization
+  const runtime = new Runtime();
+  console.log("Runtime prototype methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(runtime)));
+  // Result: [ 'constructor', '__destroy_into_raw', 'free', '__getClassname' ]
+
+  // Test 2: Inspect Wasmer class for hook methods
+  console.log("Wasmer static properties:", Object.getOwnPropertyNames(Wasmer));
+  // Result: Only has createPackage, publishPackage, whoami, fromRegistry, fromFile, fromWasm, deployApp, deleteApp
+
+  // Test 3: Load package and inspect instance for events
+  const pkg = await Wasmer.fromRegistry("sharrattj/bash");
+  const instance = await pkg.entrypoint!.run({ args: ["-c", "echo test"] });
+  console.log("Instance prototype:", Object.getOwnPropertyNames(Object.getPrototypeOf(instance)));
+  // Result: [ 'constructor', '__destroy_into_raw', 'free', 'stdin', 'stdout', 'stderr', 'wait' ]
+  // No event emitters, no callbacks, no hooks
+
+  // Test 4: Try custom runtime with undocumented options
+  const customRuntime = new Runtime({
+    registry: null,
+    // @ts-ignore
+    syscalls: { proc_spawn: () => console.log("hook!") },
+    // @ts-ignore
+    onSyscall: (name: string) => console.log("syscall:", name)
+  } as any);
+  // Result: Runtime created but undocumented options are ignored
+
+  // Test 5: Try runWasix with custom imports
+  const wasmBytes = wat2wasm(`(module ...)`);
+  const instance2 = await runWasix(wasmBytes, {
+    args: ["test"],
+    // @ts-ignore
+    imports: { custom: { intercept: () => {} } }
+  });
+  // Result: Panics with "Not able to serialize module"
+}
+```
+
+**result**: FAIL - @wasmer/sdk is completely locked down
+
+key findings from test 11:
+
+| what we tried | result |
+|---------------|--------|
+| Runtime class inspection | only has free(), __getClassname(), global() - no hooks |
+| Wasmer class inspection | only has static methods for loading packages - no hooks |
+| Instance inspection | only has stdin/stdout/stderr/wait - no event system |
+| Undocumented runtime options | silently ignored |
+| Custom imports in runWasix | panics with "Not able to serialize module" |
+| Subprocess spawning in bash | times out - WASIX proc_spawn doesn't work or requires special setup |
+
+**conclusion**: there is absolutely no way to intercept syscalls in @wasmer/sdk. the SDK is designed for isolated execution with no escape hatches.
+
+---
+
+## final summary
+
+| test | result | notes |
+|------|--------|-------|
+| 1. basic sdk | PASS | works with `@wasmer/sdk/node` import, requires tsx/pnpm |
+| 2. directory read | PASS | JS writes, WASM reads via cat - works perfectly |
+| 3. directory write (bidirectional) | PARTIAL | touch works (empty files), content-writing commands hang |
+| 4. wasm-terminal | FAIL | browser-only (requires window/xterm), not usable in Node.js |
+| 5. sdk spawn hooks | NONE | no spawn/exec callback mechanism in SDK |
+| 6. custom /bin/node | PARTIAL | `bash -c "source /script"` works; cannot intercept real spawns |
+| 7. Node.js WASI | FAIL | no proc_spawn/proc_exec - WASIX extensions not in preview1 |
+| 8. raw WASM + JS imports | **PASS** | WebAssembly.instantiate() with custom imports works |
+| 9. WASI + custom imports | **PASS** | can combine Node.js WASI with custom bridge functions |
+| 10. custom Wasmer package | PARTIAL | fromWasm() works but wait() hangs |
+| 11. WASIX syscall intercept | **FAIL** | @wasmer/sdk is completely locked down, no hooks |
+
+## final recommendations
+
+### for MVP: hybrid routing
+
+the simplest approach that works today:
+
+```
+User Code → VirtualMachine.spawn(cmd)
+                 ↓
+         command router (JS)
+         /                \
+        ↓                  ↓
+   node/bun?          linux cmd?
+        ↓                  ↓
+   NodeProcess       @wasmer/sdk
+```
+
+- pros: simple, works now, no custom WASM needed
+- cons: can't run shell scripts that call node internally
+
+### for future: custom WASM shell (test 9 approach)
+
+build a custom WASM binary that bridges to JS:
+
+```
+User Code → VirtualMachine.spawn(cmd)
+                 ↓
+         Custom WASM Shell
+         (WASI + bridge.* imports)
+                 ↓
+         bridge.spawn_node("script.js")
+                 ↓
+         JavaScript Handler → NodeProcess
+```
+
+- pros: full control, can run arbitrary shell scripts
+- cons: requires building custom WASM binary in Rust/C
+- implementation: use Node.js native WASI (not @wasmer/sdk) with custom imports
