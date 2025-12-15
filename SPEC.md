@@ -96,14 +96,99 @@ uses WebAssembly.sh to emulate a Linux shell environment. provides shell command
 ## steps
 
 1. implement a basic virtual machine with a fake file system. expose methods on this that forwards to a dedicated folder for this vm. keep this simple and add as needed.
+
+```ts
+import { VirtualMachine } from "./vm";
+import fs from "fs";
+import path from "path";
+import os from "os";
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vm-test-"));
+const vm = new VirtualMachine(tmpDir);
+
+fs.writeFileSync(path.join(tmpDir, "hello.txt"), "world");
+expect(vm.readFile("/hello.txt")).toBe("world");
+
+vm.writeFile("/foo.txt", "bar");
+expect(fs.readFileSync(path.join(tmpDir, "foo.txt"), "utf8")).toBe("bar");
+```
+
 2. get basic isolates & bindings working using isolated-vm
+
+```ts
+import { NodeProcess } from "./node-process";
+
+const proc = new NodeProcess();
+const result = await proc.run(`module.exports = 1 + 1`);
+expect(result).toBe(2);
+```
+
 3. impl nodejs require with polyfill for node stdlib
-    - impl basic test suite for this
+
+```ts
+import { NodeProcess } from "./node-process";
+
+const proc = new NodeProcess();
+const result = await proc.run(`
+  const path = require("path");
+  module.exports = path.join("foo", "bar");
+`);
+expect(result).toBe("foo/bar");
+```
+
 4. get basic wasix shell working
+
+```ts
+import { WasixVM } from "./wasix";
+
+const wasix = new WasixVM();
+const result = await wasix.exec("echo hello");
+expect(result.stdout).toBe("hello\n");
+```
+
 5. get wasix file system bindings working (test ls, cd, etc)
+
+```ts
+import { VirtualMachine } from "./vm";
+import { WasixVM } from "./wasix";
+
+const vm = new VirtualMachine(tmpDir);
+const wasix = new WasixVM(vm);
+
+vm.writeFile("/test.txt", "content");
+const result = await wasix.exec("ls /");
+expect(result.stdout).toContain("test.txt");
+```
+
 6. implement package imports using the code in node_modules
-    - try to import & use a simple package (TBD what we should test)
+
+```ts
+import { VirtualMachine } from "./vm";
+import { NodeProcess } from "./node-process";
+
+const vm = new VirtualMachine(tmpDir);
+// assume `npm install ms` was run in tmpDir on host
+const proc = new NodeProcess(vm);
+const result = await proc.run(`
+  const ms = require("ms");
+  module.exports = ms("1h");
+`);
+expect(result).toBe(3600000);
+```
+
 7. auto-install `node` program in wasix/webassembly.sh to kick out to the nodejs shim that will spawn the isolate
+
+```ts
+import { VirtualMachine } from "./vm";
+import { WasixVM } from "./wasix";
+
+const vm = new VirtualMachine(tmpDir);
+const wasix = new WasixVM(vm);
+
+vm.writeFile("/script.js", `console.log("hello from node")`);
+const result = await wasix.exec("node /script.js");
+expect(result.stdout).toBe("hello from node\n");
+```
 
 ## future work
 
