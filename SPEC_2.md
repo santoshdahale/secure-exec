@@ -334,6 +334,26 @@ async function resolveNodeModules(request: string, fromDir: string, bridge: Syst
 - Module cache prevents re-execution
 - Circular dependencies handled (partial exports visible)
 
+**JSON file handling:**
+
+When loading a `.json` file, parse it instead of executing as JS:
+
+```ts
+// In the require() function inside isolate:
+const source = _loadFile.applySyncPromise(undefined, [resolved]);
+
+// Check if JSON file
+if (resolved.endsWith('.json')) {
+  const parsed = JSON.parse(source);
+  _moduleCache[resolved] = { exports: parsed };
+  return parsed;
+}
+
+// Otherwise execute as JS...
+```
+
+This enables `require('./package.json')` and packages that load JSON configs.
+
 **Test:**
 ```ts
 // Load real ms package from host node_modules
@@ -395,6 +415,8 @@ export async function bundlePolyfill(name: string): Promise<string> {
 
 This gives us all Node.js builtins that have browser polyfills: assert, buffer, console, constants, crypto, domain, events, http, https, os, path, punycode, process, querystring, stream, string_decoder, sys, timers, tty, url, util, vm, zlib.
 
+**Note on fs:** node-stdlib-browser returns `null` for `fs` because there's no universal browser implementation. We provide our own fs polyfill (section 1) that routes to SystemBridge.
+
 **Test:**
 ```ts
 const result = await proc.run(`
@@ -436,11 +458,11 @@ if (!wasixRuntime) {
 
 **Implementation:**
 
-Create the Rust node bridge at `/wasmer-node-shim/`. Build process:
+Create the Rust node bridge at `/wasix-runtime/`. Build process:
 
 ```bash
 # Build the node bridge to WASM
-cd wasmer-node-shim
+cd wasix-runtime
 cargo build --target wasm32-wasmer-wasi --release
 
 # Package as .webc with bash and coreutils
@@ -486,9 +508,9 @@ expect(result.stdout).toContain("from node");
 ## steps
 
 1. Implement fs polyfill with basic sync methods
-2. Add buffer, stream, assert polyfills
-3. Upgrade package bundler to use esbuild
-4. Build and include node-shim.webc
+2. Use node-stdlib-browser for all other polyfills
+3. Implement dynamic CommonJS module resolution
+4. Build and include wasix-runtime.webc
 5. Integration test with real packages (ms, jsonfile)
 
 ## success criteria
