@@ -82,23 +82,15 @@ uses WebAssembly.sh to emulate a Linux shell environment. provides shell command
 
 ## steps
 
-### virtual machine
-
 1. implement a basic virtual machine with a fake file system. expose methods on this that forwards to a dedicated folder for this vm. keep this simple and add as needed.
-
-### node shim
-
-1. get basic isolates & bindings working using islated-vm
-2. impl ndoejs require with polyfill for node stdlib
-    - ipml basic test suite for this
-3. implement package imports using the code in node_modules
+2. get basic isolates & bindings working using isolated-vm
+3. impl nodejs require with polyfill for node stdlib
+    - impl basic test suite for this
+4. get basic wasix shell working
+5. get wasix file system bindings working (test ls, cd, etc)
+6. implement package imports using the code in node_modules
     - try to import & use a simple package (TBD what we should test)
-
-### wasix vm
-
-1. get basic shell working
-2. get file system bindings working (test ls, cd, etc)
-3. auto-install `node` program in wasix/webassembly.sh to kick out to the nodejs shim that will spawn the isolate
+7. auto-install `node` program in wasix/webassembly.sh to kick out to the nodejs shim that will spawn the isolate
 
 ## future work
 
