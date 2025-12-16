@@ -1,4 +1,7 @@
 import { init, Directory } from "@wasmer/sdk/node";
+import * as fs from "fs/promises";
+import * as path from "path";
+import { fileURLToPath } from "url";
 import { SystemBridge } from "../system-bridge/index.js";
 import { NodeProcess } from "../node-process/index.js";
 import { WasixInstance, InteractiveSession } from "../wasix/index.js";
@@ -13,6 +16,7 @@ export interface SpawnResult {
 
 export interface VirtualMachineOptions {
   memoryLimit?: number; // MB, default 128 for isolates
+  loadNpm?: boolean; // Load npm/npx into filesystem (default: true)
 }
 
 let wasmerInitialized = false;
@@ -42,6 +46,11 @@ export class VirtualMachine {
     // Create SystemBridge after wasmer is initialized
     this.bridge = new SystemBridge();
 
+    // Load npm into virtual filesystem if enabled (default: true)
+    if (this.options.loadNpm !== false) {
+      await this.loadNpm();
+    }
+
     // Create NodeProcess with access to virtual filesystem
     this.nodeProcess = new NodeProcess({
       memoryLimit: this.options.memoryLimit,
@@ -56,6 +65,28 @@ export class VirtualMachine {
     });
 
     this.initialized = true;
+  }
+
+  /**
+   * Load npm and npx into the virtual filesystem
+   */
+  private async loadNpm(): Promise<void> {
+    if (!this.bridge) return;
+
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const npmAssetsPath = path.resolve(currentDir, "../../assets/npm");
+
+    // Check if npm assets exist
+    try {
+      await fs.stat(npmAssetsPath);
+    } catch {
+      // npm assets not built - skip loading
+      return;
+    }
+
+    // Load npm module to /opt/npm (avoids conflicts with wasix runtime's /usr)
+    const { loadHostDirectory } = await import("./host-loader.js");
+    await loadHostDirectory(npmAssetsPath, "/opt/npm", this.bridge);
   }
 
   /**

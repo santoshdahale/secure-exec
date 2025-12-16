@@ -1,16 +1,11 @@
 [package]
 name = "nano-sandbox/wasix-runtime"
 version = "0.1.0"
-description = "WASIX runtime with Node.js shim using file-based IPC polling"
+description = "WASIX runtime with Node.js shim for IPC-based Node execution"
 
 [dependencies]
 "sharrattj/coreutils" = "1.0.16"
 "sharrattj/bash" = "*"
-
-# NOTE: [fs] section not supported by @wasmer/sdk - causes "entry not found" error
-# npm must be loaded at runtime via SystemBridge instead
-# [fs]
-# "/usr/lib/node_modules/npm" = "dist/usr/lib/node_modules/npm"
 
 [[module]]
 name = "wasix-runtime"

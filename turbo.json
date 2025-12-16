@@ -5,8 +5,12 @@
       "outputs": ["assets/runtime.webc"],
       "cache": false
     },
+    "build:npm": {
+      "outputs": ["assets/npm/**"],
+      "cache": false
+    },
     "build": {
-      "dependsOn": ["^build", "build:wasix"],
+      "dependsOn": ["^build", "build:wasix", "build:npm"],
       "outputs": ["dist/**"]
     },
     "check-types": {
