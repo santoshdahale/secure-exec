@@ -11,7 +11,6 @@ import { generateChildProcessPolyfill } from "./child-process-polyfill.js";
 import { generateNetworkPolyfill } from "./network-polyfill.js";
 import { generateOSPolyfill, type OSConfig } from "./os-polyfill.js";
 import { generateModulePolyfill } from "./module-polyfill.js";
-import { generateZlibPolyfill } from "./zlib-polyfill.js";
 
 // Interface for command executor (like WasixInstance)
 export interface CommandExecutor {
@@ -487,11 +486,6 @@ export class NodeProcess {
           return null;
         }
 
-        // zlib module is handled specially with our own polyfill
-        if (name === "zlib") {
-          return null;
-        }
-
         // module is handled specially with our own polyfill
         if (name === "module") {
           return null;
@@ -703,10 +697,6 @@ export class NodeProcess {
     const osPolyfillCode = generateOSPolyfill(this.osConfig);
     await context.eval(osPolyfillCode);
 
-    // Initialize zlib polyfill (always available)
-    const zlibPolyfillCode = generateZlibPolyfill();
-    await context.eval(zlibPolyfillCode);
-
     // Initialize module polyfill (must be after require system is set up)
     // We'll eval it after setting up _requireFrom and _resolveModule
 
@@ -809,16 +799,6 @@ export class NodeProcess {
           }
           _moduleCache['os'] = _osModule;
           return _osModule;
-        }
-
-        // Special handling for zlib module
-        if (name === 'zlib') {
-          if (_moduleCache['zlib']) return _moduleCache['zlib'];
-          if (typeof _zlibModule === 'undefined') {
-            throw new Error('zlib module not initialized');
-          }
-          _moduleCache['zlib'] = _zlibModule;
-          return _zlibModule;
         }
 
         // Special handling for module module
