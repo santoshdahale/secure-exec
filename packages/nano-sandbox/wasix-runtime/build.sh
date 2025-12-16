@@ -10,10 +10,20 @@ echo "==> Preparing npm@${NPM_VERSION} for bundling..."
 # Clean up previous build artifacts
 rm -rf npm usr etc
 
-# Download npm tarball directly from registry
-echo "    Downloading npm@${NPM_VERSION}..."
-curl -sL "https://registry.npmjs.org/npm/-/npm-${NPM_VERSION}.tgz" -o /tmp/npm-${NPM_VERSION}.tgz
-tar -xzf "/tmp/npm-${NPM_VERSION}.tgz"
+# Download npm tarball (cached by version)
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/nano-sandbox"
+NPM_TARBALL="${CACHE_DIR}/npm-${NPM_VERSION}.tgz"
+
+mkdir -p "$CACHE_DIR"
+
+if [ -f "$NPM_TARBALL" ]; then
+    echo "    Using cached npm@${NPM_VERSION}"
+else
+    echo "    Downloading npm@${NPM_VERSION}..."
+    curl -sL "https://registry.npmjs.org/npm/-/npm-${NPM_VERSION}.tgz" -o "$NPM_TARBALL"
+fi
+
+tar -xzf "$NPM_TARBALL"
 mv package npm
 
 # Prune unnecessary files to reduce package size
@@ -54,9 +64,6 @@ cat > etc/npmrc << 'EOF'
 prefix=/usr/local
 cache=/tmp/.npm
 EOF
-
-# Clean up downloaded tarball
-rm -f "/tmp/npm-${NPM_VERSION}.tgz"
 
 echo "    npm@${NPM_VERSION} prepared successfully"
 echo ""
