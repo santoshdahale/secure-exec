@@ -84,7 +84,10 @@ export class VirtualMachine {
       return;
     }
 
-    // Load npm module to /opt/npm (avoids conflicts with wasix runtime's /usr)
+    // Load npm module to /opt/npm
+    // IMPORTANT: Do NOT use /usr/lib/node_modules/npm - the wasix runtime.webc
+    // bundles coreutils and bash under /usr, and writing to /usr via the Directory
+    // API conflicts with the webc's filesystem, breaking IPC-based node execution.
     const { loadHostDirectory } = await import("./host-loader.js");
     await loadHostDirectory(npmAssetsPath, "/opt/npm", this.bridge);
   }
