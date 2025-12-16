@@ -73,3 +73,7 @@ export {
 
 // Default export is fs for backward compatibility
 export default fs;
+
+// Auto-setup globals when bridge loads
+// This installs process, timers, URL, Buffer, crypto, etc. on globalThis
+setupGlobals();

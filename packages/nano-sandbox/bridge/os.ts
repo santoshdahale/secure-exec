@@ -288,4 +288,7 @@ const os: typeof nodeOs = {
   },
 };
 
+// Expose to global for require() to use
+(globalThis as Record<string, unknown>)._osModule = os;
+
 export default os;

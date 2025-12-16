@@ -3166,6 +3166,7 @@ var bridge = (() => {
       return 1;
     }
   };
+  globalThis._osModule = os;
   var os_default = os;
 
   // bridge/child-process.ts
@@ -5467,10 +5468,12 @@ var bridge = (() => {
     // SourceMap class (stub)
     SourceMap
   };
+  globalThis._moduleModule = moduleModule;
   var module_default = moduleModule;
 
   // bridge/index.ts
   var index_default = fs_default;
+  setupGlobals();
   return __toCommonJS(index_exports);
 })();
 /*! Bundled license information:

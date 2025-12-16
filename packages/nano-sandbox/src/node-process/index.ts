@@ -697,9 +697,6 @@ export class NodeProcess {
     const osPolyfillCode = generateOSPolyfill(this.osConfig);
     await context.eval(osPolyfillCode);
 
-    // Initialize module polyfill (must be after require system is set up)
-    // We'll eval it after setting up _requireFrom and _resolveModule
-
     // Set up the require system with dynamic CommonJS resolution
     const initialCwd = this.processConfig.cwd ?? "/";
     await context.eval(`

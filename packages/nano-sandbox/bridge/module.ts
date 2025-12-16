@@ -418,4 +418,7 @@ const moduleModule = {
   SourceMap: SourceMap,
 };
 
+// Expose to global for require() to use
+(globalThis as Record<string, unknown>)._moduleModule = moduleModule;
+
 export default moduleModule;
