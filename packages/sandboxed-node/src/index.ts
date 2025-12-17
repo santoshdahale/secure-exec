@@ -1047,6 +1047,12 @@ export class NodeProcess {
           return _moduleModule;
         }
 
+        // Special handling for process module - return our bridge's process object.
+        // This prevents node-stdlib-browser's process polyfill from overwriting it.
+        if (name === 'process') {
+          return globalThis.process;
+        }
+
         // Stub for chalk (ESM module that npm uses for coloring)
         // Provides no-color passthrough functionality
         if (name === 'chalk') {

@@ -876,8 +876,35 @@ export const cryptoPolyfill = {
 export function setupGlobals(): void {
   const g = globalThis as Record<string, unknown>;
 
-  // Process
-  g.process = process;
+  // Process - use defineProperty with getter/setter to prevent polyfills from overwriting it.
+  // Without this, node-stdlib-browser polyfills try to replace globalThis.process
+  // with their own process shim, which breaks process.argv modifications.
+  // Using configurable: true allows polyfills to think they succeeded in redefining,
+  // but we reinstall our getter afterward.
+  const processDescriptor = {
+    get: () => process,
+    set: () => {
+      // Silently ignore attempts to replace process.
+    },
+    enumerable: true,
+    configurable: true,
+  };
+  Object.defineProperty(g, "process", processDescriptor);
+
+  // Watch for attempts to redefine process and reinstall our descriptor.
+  // Some polyfills use Object.defineProperty instead of direct assignment.
+  const origDefineProperty = Object.defineProperty;
+  Object.defineProperty = function (
+    obj: object,
+    prop: PropertyKey,
+    descriptor: PropertyDescriptor
+  ): object {
+    // If trying to define 'process' on globalThis, ignore and reinstall ours
+    if (obj === globalThis && prop === "process") {
+      return origDefineProperty(g, "process", processDescriptor);
+    }
+    return origDefineProperty(obj, prop, descriptor);
+  };
 
   // Timers
   g.setTimeout = setTimeout;

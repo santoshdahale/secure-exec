@@ -420,3 +420,4 @@ describe("VirtualMachine basic operations", () => {
 		expect(result.code).toBe(0);
 	});
 });
+

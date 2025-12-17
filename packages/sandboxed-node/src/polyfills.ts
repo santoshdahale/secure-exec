@@ -46,6 +46,10 @@ export async function bundlePolyfill(moduleName: string): Promise<string> {
 			"process.env.NODE_ENV": '"production"',
 			global: "globalThis",
 		},
+		// Externalize 'process' - we provide our own process polyfill in the bridge.
+		// Without this, node-stdlib-browser's process polyfill gets bundled and
+		// overwrites globalThis.process, breaking process.argv modifications.
+		external: ["process"],
 	});
 
 	const code = result.outputFiles[0].text;
