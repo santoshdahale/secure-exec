@@ -9029,21 +9029,7 @@ var bridge = (() => {
   };
   function setupGlobals() {
     const g = globalThis;
-    const processDescriptor = {
-      get: () => process,
-      set: () => {
-      },
-      enumerable: true,
-      configurable: true
-    };
-    Object.defineProperty(g, "process", processDescriptor);
-    const origDefineProperty = Object.defineProperty;
-    Object.defineProperty = function(obj, prop, descriptor) {
-      if (obj === globalThis && prop === "process") {
-        return origDefineProperty(g, "process", processDescriptor);
-      }
-      return origDefineProperty(obj, prop, descriptor);
-    };
+    g.process = process;
     g.setTimeout = setTimeout;
     g.clearTimeout = clearTimeout;
     g.setInterval = setInterval;

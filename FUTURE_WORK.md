@@ -2,6 +2,7 @@
 
 ## short term
 
+- impl process.cwd & integration with subprocesses
 - get npm working in terminal
 - remove use of runCommand, make it all run with ipc
 
