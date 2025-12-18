@@ -8,7 +8,8 @@ import {
 	InteractiveSession,
 	WasixInstance,
 } from "../wasix/index.js";
-import { createVirtualFileSystem } from "./virtual-filesystem.js";
+import { createVirtualFileSystem } from "./node-vfs.js";
+import { createWasixVFS } from "./wasix-vfs.js";
 
 export { WasixInstance, InteractiveSession, Directory, DATA_MOUNT_PATH };
 export type { VirtualFileSystem };
@@ -80,10 +81,10 @@ export class VirtualMachine {
 			await this.loadNpm();
 		}
 
-		// Create virtual filesystem wrapper with shell fallback for non-/data paths.
+		// Create WasixVFS that provides access to the WASM filesystem.
 		// The shell callback captures `this` via closure, so it can access wasixInstance
 		// even though it's created after this call.
-		this.vfs = createVirtualFileSystem(
+		const wasixVfs = createWasixVFS(
 			this.directory,
 			async (command: string, args: string[]) => {
 				if (!this.wasixInstance) {
@@ -92,6 +93,9 @@ export class VirtualMachine {
 				return this.wasixInstance.runWithIpc(command, args);
 			},
 		);
+
+		// Create VirtualFileSystem that delegates to the VFS
+		this.vfs = createVirtualFileSystem(wasixVfs);
 
 		// Create NodeProcess with access to virtual filesystem
 		// Set homedir to /data/root so npm and other tools write to /data/*

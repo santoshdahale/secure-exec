@@ -88,7 +88,7 @@ describe("VirtualMachine", () => {
 			await vm.init();
 
 			await expect(vm.writeFile("/foo.txt", "bar")).rejects.toThrow(
-				"Cannot write to path outside /data",
+				/Only paths under \/data\//,
 			);
 		});
 	});
