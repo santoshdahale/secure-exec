@@ -15,23 +15,26 @@
     "build:wasix": "./wasix-runtime/build.sh",
     "build:npm": "./scripts/archive-npm.sh",
     "build": "tsc",
-    "test": "node --import tsx --test tests/**/*.test.ts"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "@wasmer/sdk": "^0.10.0",
+    "@wasmer/sdk": "file:../../../misc/wasmer-js",
     "buffer": "^6.0.3",
     "fastestsmallesttextencoderdecoder": "^1.0.22",
     "pako": "^2.1.0",
     "sandboxed-node": "workspace:*",
     "text-encoding-utf-8": "^1.0.2",
+    "web-worker": "^1.5.0",
     "whatwg-url": "^15.1.0"
   },
   "devDependencies": {
-    "@types/node": "^25.0.3",
+    "@types/node": "^22.10.2",
     "@types/pako": "^2.0.4",
     "ms": "^2.1.3",
     "npm": "^11.7.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }
