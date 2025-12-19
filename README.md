@@ -1,12 +1,14 @@
-# libsandbox
+<div align="center">
+<img alt="libsandbox logo" src="./.github/media/sb-logo.svg" width="150"></img>
+    
+<h1>libsandbox</h1>
 
-![libsandbox logo](./.github/media/sb-logo.svg)
+<b>Run fast, secure, Linux-compatible sandboxes anywhere Node.js runs — no external SaaS or nested virtualization.</b>
 
-**Run fast, secure, Linux-compatible sandboxes anywhere Node.js runs — no external providers or nested virtualization.**
+By compiling Linux tools to WebAssembly (WASIX) and attaching a V8 Isolate Accelerator (for sandboxed Node.js performance), libsandbox provides portable sandboxes anywhere.
 
-By compiling Linux tools to WebAssembly (WASIX) and combining with a V8 Isolate accelerator for speeding up Node.js performance, libsandbox provides a sandboxed, Linux-compatible environment anywhere Node.js runs in two lines of code:
-
-Useful for one-off code evals, coding agents, and dev servers.
+Works for one-off code evals, long-running coding agents, and dev servers.
+</div>
 
 ## Features
 
