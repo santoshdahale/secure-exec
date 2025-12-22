@@ -19,21 +19,6 @@ The wasmer-js SDK has two filesystem layers:
 
 **Implication**: If you write files via VFS and then spawn a separate command (ls, cat, etc.), that command won't see the VFS files because it has its own TmpFileSystem. To test VFS operations with shell commands, use a shell script within a single spawn() call so all operations happen in the same Instance.
 
-## wasmer-js Node.js Scheduler Issues
-
-The wasmer-js SDK has several issues when running in Node.js:
-
-1. **Event Loop**: The SDK's web-worker based threading doesn't properly keep the Node.js event loop alive. The `withEventLoopActive()` helper in `src/wasix/index.ts` works around this by using a `setInterval`.
-
-2. **Scheduler Race Conditions**: Running more than ~2 WASM commands across separate test blocks causes the scheduler to hang. The third command will start but never complete. This appears to be a state management bug in the wasmer-js scheduler when the "idle" message is processed incorrectly.
-
-3. **Directory Writes Between Commands**: Writing to a Directory object between WASM commands (within the same test) can cause hangs. Always write all files BEFORE running any commands.
-
-**Workarounds in tests**:
-- Keep each test to a single WASM command when possible
-- Tests that run multiple commands in the same session may need to be skipped
-- Add a `setInterval(() => {}, 1000)` keepAlive to test files that use wasmer-js
-
 ## sandboxed-node V8 Accelerator
 
 When WASM runs `node`, the `host_exec` syscalls delegate to sandboxed-node's `NodeProcess` (V8 isolate) instead of spawning a real process. See [docs/HOST_EXEC_IPC.md](docs/HOST_EXEC_IPC.md) for architecture details.

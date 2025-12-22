@@ -5,7 +5,6 @@ description = "WASIX runtime with Node.js shim for IPC-based Node execution"
 
 [dependencies]
 "sharrattj/coreutils" = "1.0.16"
-"sharrattj/bash" = "*"
 
 [[module]]
 name = "wasix-runtime"

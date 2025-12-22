@@ -9,9 +9,9 @@
 
 ## short term
 
-- get subprocesses working in separate project
-    - figure out the build target
-    - then get it working with our fork
+- fix subprocesses
+- verify docs on ipc host exec shows posix_spawn
+- get stdin streaming working again
 - clean up where load runtime is (it should be part of runtime.load())
 - implement child process with the host process context
 - clean up HostExecContext
@@ -19,6 +19,7 @@
 - get npm working in terminal
 - get basic ecosystem tests working
 - switch back to wasmer 0.10
+- document how to work with the branches in the other repos
 
 ## cleanup
 

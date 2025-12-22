@@ -1,5 +1,0 @@
-- move source to packages/nanosandbox/src/
-- add packages/fs/ that contains fs code in typescript (instead of hardcoding compiled js)
-    - add tsup for this
-- add turbopack to the repo
-- update nanosandbox to import the raw file from dist in fs
