@@ -62,6 +62,7 @@ export async function waitForServer(
 
 export async function prepareRunnerInTempDir(
 	sourceDir: string,
+	entryRelativePath: string = path.join("src", "index.ts"),
 ): Promise<{ tempDir: string; entryPath: string }> {
 	const tempDir = await mkdtemp(path.join(tmpdir(), "libsandbox-hono-runner-"));
 
@@ -83,6 +84,6 @@ export async function prepareRunnerInTempDir(
 
 	return {
 		tempDir,
-		entryPath: path.join(tempDir, "src/index.ts"),
+		entryPath: path.join(tempDir, entryRelativePath),
 	};
 }

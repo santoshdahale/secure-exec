@@ -13,53 +13,104 @@ import {
   waitForServer,
 } from "../../../shared/src/sandbox-runner-utils.ts";
 
-async function main(): Promise<void> {
-  const loaderDir = path.dirname(fileURLToPath(import.meta.url));
-  const runnerSourceRoot = path.resolve(loaderDir, "../../runner");
+function createProcess(runnerRoot: string, runnerEntry: string): NodeProcess {
+  const driver = createNodeDriver({
+    filesystem: new NodeFileSystem(),
+    useDefaultNetwork: true,
+  });
 
-  const { tempDir: runnerRoot, entryPath: runnerEntry } =
-    await prepareRunnerInTempDir(runnerSourceRoot);
+  return new NodeProcess({
+    driver,
+    processConfig: {
+      cwd: runnerRoot,
+      argv: ["node", runnerEntry],
+    },
+  });
+}
+
+async function runFetchHandlerEntrypoint(
+  runnerRoot: string,
+  fetchHandlerEntry: string,
+): Promise<void> {
+  const probeFilePath = path.join(runnerRoot, "src/__fetch-handler-probe.ts");
+  const probeCode = `
+const { fetch } = require("./fetch-handler.ts");
+
+(async () => {
+  const textResponse = await fetch(new Request("http://sandbox.local/"));
+  const jsonResponse = await fetch(new Request("http://sandbox.local/json"));
+  const textBody = await textResponse.text();
+  const jsonBody = await jsonResponse.text();
+
+  console.log(\`loader:fetch-handler:text:\${textResponse.status}:\${textBody}\`);
+  console.log(\`loader:fetch-handler:json:\${jsonResponse.status}:\${jsonBody}\`);
+})();
+`;
+
+  const proc = createProcess(runnerRoot, fetchHandlerEntry);
+  try {
+    const result = await proc.exec(probeCode, {
+      filePath: probeFilePath,
+      cwd: runnerRoot,
+    });
+
+    if (result.stdout.trim()) {
+      console.log(result.stdout.trim());
+    }
+
+    if (result.code !== 0) {
+      throw new Error(
+        `Fetch-handler entrypoint failed with code ${result.code}: ${result.stderr}`,
+      );
+    }
+  } finally {
+    proc.dispose();
+  }
+}
+
+async function runHttpServerEntrypoint(
+  runnerRoot: string,
+  serverEntry: string,
+): Promise<void> {
+  const runnerCode = await readFile(serverEntry, "utf8");
+  const runnerPort = await findOpenPort();
+  const baseUrl = `http://${LOOPBACK_HOST}:${runnerPort}`;
+
+  const proc = createProcess(runnerRoot, serverEntry);
+  const execPromise = proc.exec(runnerCode, {
+    filePath: serverEntry,
+    cwd: runnerRoot,
+    env: {
+      HONO_PORT: String(runnerPort),
+      HONO_HOST: LOOPBACK_HOST,
+    },
+  });
 
   try {
-    const runnerCode = await readFile(runnerEntry, "utf8");
-    const runnerPort = await findOpenPort();
-    const baseUrl = `http://${LOOPBACK_HOST}:${runnerPort}`;
-
-    const driver = createNodeDriver({
-      filesystem: new NodeFileSystem(),
-      useDefaultNetwork: true,
-    });
-
-    const proc = new NodeProcess({
-      driver,
-      processConfig: {
-        cwd: runnerRoot,
-        argv: ["node", runnerEntry],
-      },
-    });
-
-    const execPromise = proc.exec(runnerCode, {
-      filePath: runnerEntry,
-      cwd: runnerRoot,
-      env: {
-        HONO_PORT: String(runnerPort),
-        HONO_HOST: LOOPBACK_HOST,
-      },
-    });
-
     await waitForServer(proc, baseUrl);
 
     const textResponse = await proc.network.fetch(`${baseUrl}/`, { method: "GET" });
     const jsonResponse = await proc.network.fetch(`${baseUrl}/json`, { method: "GET" });
 
-    console.log(`loader:text:${textResponse.status}:${textResponse.body}`);
-    console.log(`loader:json:${jsonResponse.status}:${jsonResponse.body}`);
-
-    // Shut down the sandbox from the host side.
+    console.log(`loader:server:text:${textResponse.status}:${textResponse.body}`);
+    console.log(`loader:server:json:${jsonResponse.status}:${jsonResponse.body}`);
+  } finally {
     await proc.terminate();
-
-    // Ensure pending execution settles after termination.
     await execPromise.catch(() => undefined);
+  }
+}
+
+async function main(): Promise<void> {
+  const loaderDir = path.dirname(fileURLToPath(import.meta.url));
+  const runnerSourceRoot = path.resolve(loaderDir, "../../runner");
+
+  const { tempDir: runnerRoot, entryPath: runnerEntry } =
+    await prepareRunnerInTempDir(runnerSourceRoot, "src/server.ts");
+  const fetchHandlerEntry = path.join(runnerRoot, "src/fetch-handler.ts");
+
+  try {
+    await runFetchHandlerEntrypoint(runnerRoot, fetchHandlerEntry);
+    await runHttpServerEntrypoint(runnerRoot, runnerEntry);
   } finally {
     await rm(runnerRoot, { recursive: true, force: true });
   }
