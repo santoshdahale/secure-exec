@@ -19,3 +19,8 @@ Follow the style in `packages/sandboxed-node/src/index.ts`.
 - explain intent/why, not obvious mechanics
 - keep comments concise and consistent (`Set up`, `Transform`, `Wait for`, `Get`)
 - comment tricky ordering/invariants; skip noise
+
+## Skills
+
+- create project skills in `.claude/skills/`
+- expose Claude-managed skills to Codex via symlinks in `.codex/skills/`
