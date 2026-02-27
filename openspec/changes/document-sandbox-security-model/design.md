@@ -7,7 +7,7 @@ This change is documentation-focused and must preserve the project rule that int
 ## Goals / Non-Goals
 
 **Goals:**
-- Create a canonical internal security model document for sandboxed-node.
+- Create a canonical user-facing security model page for sandboxed-node under `docs/`.
 - Document isolate architecture in terms that map to Cloudflare Workers and browser isolation mental models.
 - Document timing-attack mitigations and the security-first default posture.
 - Document execution guardrails (`cpuTimeLimitMs`, `memoryLimit`) as part of DoS/containment posture.
@@ -21,10 +21,10 @@ This change is documentation-focused and must preserve the project rule that int
 
 ## Decisions
 
-### 1. Add a dedicated canonical doc under `docs-internal/security/`
+### 1. Add a dedicated canonical docs page under `docs/`
 
 Decision:
-- Add `docs-internal/security/sandboxed-node-security-model.md` as the single canonical narrative for runtime security posture.
+- Add `docs/security-model.mdx` as the single canonical narrative for runtime security posture and expose it in `docs/docs.json` navigation.
 
 Rationale:
 - Security assumptions are currently discoverable only by reading multiple files. A single canonical document lowers audit friction and reduces stale guidance risk.
@@ -49,7 +49,7 @@ Decision:
 - State that sandboxed-node assumes a sufficiently hardened outer host environment (for example Lambda, Cloud Run, or equivalent hardened serverless/container runtime) for internet-facing untrusted workloads.
 
 Rationale:
-- Isolate-only containment does not provide full defense against host compromise if a VM escape occurs.
+- Host hardening remains a required deployment assumption for internet-facing untrusted workloads.
 
 Alternatives considered:
 - Present isolate containment as self-sufficient: rejected as misleading for real-world threat modeling.
@@ -57,13 +57,24 @@ Alternatives considered:
 ### 4. Govern doc synchronization via compatibility-governance requirement
 
 Decision:
-- Add a governance requirement requiring security model updates whenever timing mitigation defaults/behavior, timeout or memory limit contracts, or trust-boundary assumptions change.
+- Add a governance requirement requiring security model updates whenever timing mitigation defaults/behavior, timeout or memory limit contracts, or trust-boundary assumptions change, and require docs navigation updates when the canonical page location changes.
 
 Rationale:
 - This makes the doc part of the required delivery contract rather than optional follow-up.
 
 Alternatives considered:
 - Rely on reviewer convention without spec enforcement: rejected due repeated drift risk.
+
+### 5. Keep public docs focused on secure-exec contract, not backend dependency internals
+
+Decision:
+- User-facing docs in `docs/` describe secure-exec behavior and guarantees without naming backend implementation dependencies.
+
+Rationale:
+- Public docs should present stable library contracts and avoid coupling to swap-able internal runtime packaging details.
+
+Alternatives considered:
+- Include dependency-level implementation details in public docs: rejected because it adds churn and distracts from the secure-exec contract surface.
 
 ## Risks / Trade-offs
 

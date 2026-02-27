@@ -12,6 +12,10 @@
       {
         "group": "Getting Started",
         "pages": ["quickstart"]
+      },
+      {
+        "group": "Security",
+        "pages": ["security-model"]
       }
     ]
   }

@@ -5,6 +5,10 @@
 - keep timeouts under 1 minute and avoid running full test suites unless necessary
 - use one-line Conventional Commit messages; never add any co-authors (including agents)
 
+## Terminology
+
+- use `docs-internal/glossary.md` for canonical definitions of isolate, runtime, bridge, and driver
+
 ## Specs Source of Truth
 
 - bridge/runtime/governance requirements are canonical in `openspec/specs/`

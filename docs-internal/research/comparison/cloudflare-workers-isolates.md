@@ -1,5 +1,7 @@
 # Cloudflare Workers Isolate Security Model vs libsandbox
 
+Canonical runtime security model doc: `docs/security-model.mdx`.
+
 ## Cloudflare Workers Security Model
 
 Cloudflare uses V8 isolates as their primary isolation boundary but does not rely on them alone. Their production system has 9 layers of defense-in-depth:
@@ -59,9 +61,9 @@ libsandbox uses `isolated-vm` (also V8 isolates) and shares some of the same pri
 | Network | Mediated through proxy | No network unless NetworkAdapter provided |
 | Process spawn | Not available | No spawn unless CommandExecutor provided |
 | Memory limits | 128 MB hard cap | Configurable (default 128 MB) |
-| CPU/time limits | 10ms-5min hard cap | **None** |
+| CPU/time limits | 10ms-5min hard cap | Configurable `cpuTimeLimitMs` shared execution deadline |
 | OS-level sandbox | seccomp + namespaces | **None** |
-| Spectre mitigations | Frozen clocks, perf counters, process isolation | **None** |
+| Spectre mitigations | Frozen clocks, perf counters, process isolation | Default frozen timing mode + `SharedArrayBuffer` removed (`timingMitigation: "freeze"`) |
 | eval/dynamic code | Blocked during request handling | **Not restricted** |
 | Native code | Blocked (JS/Wasm only) | Blocked (isolated-vm limitation) |
 
@@ -96,25 +98,20 @@ The host Node.js process has full OS access. If there is ever an isolated-vm esc
 - Provide guidance for users to run the host process in a container with minimal capabilities (`--cap-drop=ALL`)
 - Consider optional integration with Linux namespaces or seccomp for the host process
 
-### 3. No Spectre mitigations (MEDIUM)
+### 3. Timing side-channel hardening (RESOLVED)
 
-`Date.now()` likely returns real time in isolated-vm, usable as a timing side-channel. Cloudflare freezes clocks during execution and monitors for Spectre patterns.
+`sandboxed-node` now includes explicit timing mitigation controls with security-first defaults:
 
-**Proposed fix (concrete):**
-1. Add `timingMitigation?: "off" | "freeze"` to `NodeProcessOptions` (default `"freeze"` for security-first behavior).
-2. In `packages/sandboxed-node/src/index.ts`, when `timingMitigation === "freeze"`, capture execution start time and install hardened time globals before user code runs:
-   - `Date.now()` returns the captured execution-start timestamp.
-   - `performance.now()` returns a deterministic constant value for that execution.
-3. Route process timing helpers to the hardened clock path in freeze mode:
+1. `timingMitigation?: "off" | "freeze"` is supported, defaulting to `"freeze"`.
+2. In freeze mode, timing APIs are deterministic/frozen:
+   - `Date.now()`
+   - `performance.now()`
    - `process.hrtime()`
    - `process.hrtime.bigint()`
    - `process.uptime()`
-4. Remove `SharedArrayBuffer` from `globalThis` in freeze mode.
-5. Add targeted tests that assert:
-   - default mode produces deterministic/frozen values;
-   - `timingMitigation: "off"` restores advancing clocks;
-   - `SharedArrayBuffer` is unavailable by default.
-6. Track this as OpenSpec change `openspec/changes/mitigate-timing-attacks/` (proposal/design/spec/tasks) and document intentional Node-compat deviations in friction docs.
+3. `SharedArrayBuffer` is unavailable in freeze mode.
+4. Compatibility mode (`"off"`) restores Node-like advancing clocks.
+5. Runtime/security contract is documented in `docs/security-model.mdx` and linked governance docs.
 
 ### 4. eval() and new Function() unrestricted (MEDIUM)
 
@@ -137,8 +134,8 @@ In `checkPermission()`, if no permission check function is defined, the operatio
 ## Recommended Priority Order
 
 1. Keep CPU timeout regression coverage and docs synchronized as execution paths evolve
-2. Add default-on timing hardening profile (`timingMitigation: "freeze"`) and wire process timing helpers to frozen clocks
-3. Document threat model explicitly -- isolated-vm is not sufficient for untrusted internet code without additional OS-level hardening
+2. Keep default-on timing hardening coverage and docs synchronized as execution paths evolve
+3. Keep canonical security model docs current (`docs/security-model.mdx`) so trust boundaries remain explicit
 4. Add OS-level hardening guidance (container/namespace recommendations)
 5. Add `eval()` restriction option
 6. Add subprocess/network rate limits

@@ -6,9 +6,13 @@
    - Symptom: option-level timeout helpers existed, but execution paths still risked unbounded loops or post-timeout state reuse.
    - Fix: added/standardized `cpuTimeLimitMs` support, enforced shared execution deadlines across CJS/ESM/dynamic-import/active-handle paths, normalized timeout contract (`code: 124`, `CPU time limit exceeded`), and recycled isolate state after timeout.
 
-2. TODO: runtime timing side-channel hardening is specified but not yet implemented.
-   - Symptom: sandboxed code currently observes advancing `Date.now()` / `performance.now()` and has no hardened timing profile.
-   - Next step: implement OpenSpec change `mitigate-timing-attacks` with security-first defaults (`timingMitigation` defaults to `"freeze"` + `cpuTimeLimitMs`) and add parity/deviation tests (`"off"` compatibility mode included).
+2. **[resolved]** Runtime timing side-channel hardening needed a security-first default.
+   - Symptom: sandboxed code observed advancing clocks by default, which increased timing side-channel signal quality.
+   - Fix: `timingMitigation` now defaults to `"freeze"` and keeps `"off"` as a compatibility opt-out; frozen mode hardens `Date.now()`, `performance.now()`, and process timing helpers while removing `SharedArrayBuffer`.
+
+3. **[resolved]** Security model contract was fragmented across internal notes.
+   - Symptom: threat model and trust-boundary assumptions were not published in one canonical docs page.
+   - Fix: added canonical docs page `docs/security-model.mdx` and docs navigation entry in `docs/docs.json`; comparison guidance now references this page.
 
 ## 2026-02-26
 
