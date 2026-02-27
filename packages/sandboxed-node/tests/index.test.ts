@@ -71,6 +71,35 @@ describe("NodeProcess", () => {
 		expect(result.code).toBe(0);
 	});
 
+	it("logs circular objects without throwing", async () => {
+		proc = new NodeProcess();
+		const result = await proc.exec(`
+      const value = { name: 'root' };
+      value.self = value;
+      console.log(value);
+    `);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("[Circular]");
+	});
+
+	it("logs null and undefined values", async () => {
+		proc = new NodeProcess();
+		const result = await proc.exec(`console.log(null, undefined);`);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("null undefined\n");
+	});
+
+	it("logs circular objects to stderr without throwing", async () => {
+		proc = new NodeProcess();
+		const result = await proc.exec(`
+      const value = { name: 'root' };
+      value.self = value;
+      console.error(value);
+    `);
+		expect(result.code).toBe(0);
+		expect(result.stderr).toContain("[Circular]");
+	});
+
 	it("loads node stdlib polyfills", async () => {
 		proc = new NodeProcess();
 		const result = await proc.run(`

@@ -19,6 +19,7 @@ import {
 	transformDynamicImport,
 	wrapCJSForESM,
 } from "./shared/esm-utils.js";
+import { getConsoleSetupCode } from "./shared/console-formatter.js";
 import { getRequireSetupCode } from "./shared/require-setup.js";
 import type {
 	CommandExecutor,
@@ -1568,22 +1569,7 @@ export class NodeProcess {
 		await jail.set("_log", logRef);
 		await jail.set("_error", errorRef);
 
-		await context.eval(`
-      globalThis.console = {
-        log: (...args) => _log.applySync(undefined, [args.map(a =>
-          typeof a === 'object' ? JSON.stringify(a) : String(a)
-        ).join(' ')]),
-        error: (...args) => _error.applySync(undefined, [args.map(a =>
-          typeof a === 'object' ? JSON.stringify(a) : String(a)
-        ).join(' ')]),
-        warn: (...args) => _error.applySync(undefined, [args.map(a =>
-          typeof a === 'object' ? JSON.stringify(a) : String(a)
-        ).join(' ')]),
-        info: (...args) => _log.applySync(undefined, [args.map(a =>
-          typeof a === 'object' ? JSON.stringify(a) : String(a)
-        ).join(' ')]),
-      };
-    `);
+		await context.eval(getConsoleSetupCode());
 	}
 
 	/**

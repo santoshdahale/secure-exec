@@ -28,7 +28,7 @@
   - Fixed by flipping permission checks and env filtering to deny-by-default, and by exporting explicit `allowAll*` helpers for opt-in access.
   - `packages/sandboxed-node/src/shared/permissions.ts`
 
-- [ ] Make console capture robust for circular objects (avoid `JSON.stringify` throw paths in logging).
+- [x] Make console capture robust for circular objects (avoid `JSON.stringify` throw paths in logging).
   - `packages/sandboxed-node/src/index.ts`
 
 - [x] Reconcile `docs-internal/node/STDLIB_COMPATIBILITY.md` with current runtime behavior.

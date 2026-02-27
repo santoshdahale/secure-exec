@@ -18,3 +18,18 @@ The sandbox console capture SHALL handle circular object references without thro
 #### Scenario: Console error and warn handle circular objects
 - **WHEN** sandboxed code calls `console.error` or `console.warn` with a circular object
 - **THEN** the captured stderr MUST contain the serialized object with `[Circular]` markers, and execution MUST NOT throw
+
+### Requirement: Bounded Console Serialization Work
+Console argument serialization SHALL enforce bounded work for very large or deeply nested payloads by applying depth, key-count, array-length, and output-length limits with deterministic truncation markers.
+
+#### Scenario: Deep object logging is bounded
+- **WHEN** sandboxed code logs an object that exceeds the configured depth budget
+- **THEN** serialization MUST stop descending past the budget and emit a deterministic depth marker instead of unbounded traversal
+
+#### Scenario: Large object or array logging is bounded
+- **WHEN** sandboxed code logs an object/array that exceeds key-count or element-count budgets
+- **THEN** serialization MUST truncate beyond the configured limits and emit a deterministic truncation marker
+
+#### Scenario: Oversized output is bounded
+- **WHEN** serialized console output exceeds the maximum output-length budget
+- **THEN** the captured output MUST be truncated to the configured size with a deterministic suffix marker
