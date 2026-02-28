@@ -20,7 +20,9 @@
     }
   },
   "scripts": {
-    "check-types": "tsc --noEmit",
+    "check-types:src": "tsc --noEmit",
+    "check-types:isolate-runtime": "tsc -p tsconfig.isolate-runtime.json --noEmit",
+    "check-types": "pnpm run check-types:src && pnpm run check-types:isolate-runtime",
     "build:bridge": "esbuild src/bridge/index.ts --bundle --format=iife --global-name=bridge --outfile=dist/bridge.js",
     "build:polyfills": "node scripts/build-polyfills.mjs",
     "build:isolate-runtime": "node scripts/build-isolate-runtime.mjs",

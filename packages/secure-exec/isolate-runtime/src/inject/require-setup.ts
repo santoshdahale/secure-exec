@@ -1,3 +1,4 @@
+// @ts-nocheck
 // This file is executed inside the isolate runtime.
       const __requireExposeCustomGlobal =
         typeof globalThis.__runtimeExposeCustomGlobal === "function"

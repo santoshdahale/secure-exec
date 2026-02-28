@@ -35,4 +35,11 @@ describe("isolate runtime injection policy", () => {
 		expect(workerSource).not.toContain("_fsModuleCode");
 		expect(workerSource).toContain('getIsolateRuntimeSource("globalExposureHelpers")');
 	});
+
+	it("builds isolate runtime from src/inject entrypoints with shared common modules", () => {
+		const buildScript = readSource("scripts/build-isolate-runtime.mjs");
+		expect(buildScript).toContain('path.join(process.cwd(), "isolate-runtime", "src")');
+		expect(buildScript).toContain('path.join(runtimeSourceDir, "inject")');
+		expect(buildScript).toContain("bundle: true");
+	});
 });

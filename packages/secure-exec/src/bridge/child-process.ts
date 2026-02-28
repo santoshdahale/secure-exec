@@ -7,43 +7,42 @@
 
 import type * as nodeChildProcess from "child_process";
 import { exposeCustomGlobal } from "../shared/global-exposure.js";
+import type {
+	ChildProcessKillBridgeRef,
+	ChildProcessSpawnStartBridgeRef,
+	ChildProcessSpawnSyncBridgeRef,
+	ChildProcessStdinCloseBridgeRef,
+	ChildProcessStdinWriteBridgeRef,
+	RegisterHandleBridgeFn,
+	UnregisterHandleBridgeFn,
+} from "../shared/bridge-contract.js";
 
 // Host bridge declarations for streaming mode
 declare const _childProcessSpawnStart:
-  | {
-      applySync(ctx: undefined, args: [string, string, string]): number;
-    }
+  | ChildProcessSpawnStartBridgeRef
   | undefined;
 
 declare const _childProcessStdinWrite:
-  | {
-      applySync(ctx: undefined, args: [number, Uint8Array]): void;
-    }
+  | ChildProcessStdinWriteBridgeRef
   | undefined;
 
 declare const _childProcessStdinClose:
-  | {
-      applySync(ctx: undefined, args: [number]): void;
-    }
+  | ChildProcessStdinCloseBridgeRef
   | undefined;
 
 declare const _childProcessKill:
-  | {
-      applySync(ctx: undefined, args: [number, number]): void;
-    }
+  | ChildProcessKillBridgeRef
   | undefined;
 
 // Synchronous spawn - blocks until process exits, returns all output as JSON
 declare const _childProcessSpawnSync:
-  | {
-      applySyncPromise(ctx: undefined, args: [string, string, string]): string;
-    }
+  | ChildProcessSpawnSyncBridgeRef
   | undefined;
 
 // Active handles functions (installed by active-handles.ts)
 // See: docs-internal/node/ACTIVE_HANDLES.md
-declare const _registerHandle: (id: string, description: string) => void;
-declare const _unregisterHandle: (id: string) => void;
+declare const _registerHandle: RegisterHandleBridgeFn;
+declare const _unregisterHandle: UnregisterHandleBridgeFn;
 
 // Active children registry - maps session ID to ChildProcess
 const activeChildren = new Map<number, ChildProcess>();

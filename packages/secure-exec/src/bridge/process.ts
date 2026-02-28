@@ -12,6 +12,13 @@ import { URL as WhatwgURL, URLSearchParams as WhatwgURLSearchParams } from "what
 
 // Use buffer package for spec-compliant Buffer implementation
 import { Buffer as BufferPolyfill } from "buffer";
+import type {
+	CryptoRandomFillBridgeRef,
+	CryptoRandomUuidBridgeRef,
+	ProcessErrorBridgeRef,
+	ProcessLogBridgeRef,
+	ScheduleTimerBridgeRef,
+} from "../shared/bridge-contract.js";
 import {
   exposeCustomGlobal,
   exposeMutableRuntimeStateGlobal,
@@ -38,26 +45,12 @@ export interface ProcessConfig {
 
 // Declare config and host bridge globals
 declare const _processConfig: ProcessConfig | undefined;
-declare const _log: {
-  applySync(ctx: undefined, args: [string]): void;
-};
-declare const _error: {
-  applySync(ctx: undefined, args: [string]): void;
-};
+declare const _log: ProcessLogBridgeRef;
+declare const _error: ProcessErrorBridgeRef;
 // Timer reference for actual delays using host's event loop
-declare const _scheduleTimer: {
-  apply(
-    ctx: undefined,
-    args: [number],
-    options?: { result: { promise: true } }
-  ): Promise<void>;
-} | undefined;
-declare const _cryptoRandomFill: {
-  applySync(ctx: undefined, args: [number]): string;
-} | undefined;
-declare const _cryptoRandomUUID: {
-  applySync(ctx: undefined, args: []): string;
-} | undefined;
+declare const _scheduleTimer: ScheduleTimerBridgeRef | undefined;
+declare const _cryptoRandomFill: CryptoRandomFillBridgeRef | undefined;
+declare const _cryptoRandomUUID: CryptoRandomUuidBridgeRef | undefined;
 
 // Get config with defaults
 const config = {

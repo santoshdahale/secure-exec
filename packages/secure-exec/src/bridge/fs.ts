@@ -4,22 +4,10 @@
 
 import { Buffer } from "buffer";
 import type * as nodeFs from "fs";
+import type { FsFacadeBridge } from "../shared/bridge-contract.js";
 
 // Declare globals that are set up by the host environment
-declare const _fs: {
-  readFile: { applySyncPromise: (ctx: undefined, args: [string]) => string };
-  writeFile: { applySyncPromise: (ctx: undefined, args: [string, string]) => void };
-  // Binary file operations use base64 encoding for transfer across isolate boundary
-  readFileBinary: { applySyncPromise: (ctx: undefined, args: [string]) => string }; // Returns base64
-  writeFileBinary: { applySyncPromise: (ctx: undefined, args: [string, string]) => void }; // Takes base64
-  readDir: { applySyncPromise: (ctx: undefined, args: [string]) => string };
-  mkdir: { applySyncPromise: (ctx: undefined, args: [string, boolean]) => void };
-  rmdir: { applySyncPromise: (ctx: undefined, args: [string]) => void };
-  exists: { applySyncPromise: (ctx: undefined, args: [string]) => boolean };
-  stat: { applySyncPromise: (ctx: undefined, args: [string]) => string };
-  unlink: { applySyncPromise: (ctx: undefined, args: [string]) => void };
-  rename: { applySyncPromise: (ctx: undefined, args: [string, string]) => void };
-};
+declare const _fs: FsFacadeBridge;
 
 // File descriptor table
 const fdTable = new Map<number, { path: string; flags: number; position: number }>();

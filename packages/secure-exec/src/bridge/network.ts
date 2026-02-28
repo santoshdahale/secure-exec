@@ -5,58 +5,37 @@
 import type * as nodeHttp from "http";
 import type * as nodeDns from "dns";
 import { exposeCustomGlobal } from "../shared/global-exposure.js";
+import type {
+	NetworkDnsLookupRawBridgeRef,
+	NetworkFetchRawBridgeRef,
+	NetworkHttpRequestRawBridgeRef,
+	NetworkHttpServerCloseRawBridgeRef,
+	NetworkHttpServerListenRawBridgeRef,
+	RegisterHandleBridgeFn,
+	UnregisterHandleBridgeFn,
+} from "../shared/bridge-contract.js";
 
 // Declare host bridge References
-declare const _networkFetchRaw: {
-  apply(
-    ctx: undefined,
-    args: [string, string],
-    options: { result: { promise: true } }
-  ): Promise<string>;
-};
+declare const _networkFetchRaw: NetworkFetchRawBridgeRef;
 
-declare const _networkDnsLookupRaw: {
-  apply(
-    ctx: undefined,
-    args: [string],
-    options: { result: { promise: true } }
-  ): Promise<string>;
-};
+declare const _networkDnsLookupRaw: NetworkDnsLookupRawBridgeRef;
 
-declare const _networkHttpRequestRaw: {
-  apply(
-    ctx: undefined,
-    args: [string, string],
-    options: { result: { promise: true } }
-  ): Promise<string>;
-};
+declare const _networkHttpRequestRaw: NetworkHttpRequestRawBridgeRef;
 
 declare const _networkHttpServerListenRaw:
-  | {
-      apply(
-        ctx: undefined,
-        args: [string],
-        options: { result: { promise: true } }
-      ): Promise<string>;
-    }
+  | NetworkHttpServerListenRawBridgeRef
   | undefined;
 
 declare const _networkHttpServerCloseRaw:
-  | {
-      apply(
-        ctx: undefined,
-        args: [number],
-        options: { result: { promise: true } }
-      ): Promise<void>;
-    }
+  | NetworkHttpServerCloseRawBridgeRef
   | undefined;
 
 declare const _registerHandle:
-  | ((id: string, description: string) => void)
+  | RegisterHandleBridgeFn
   | undefined;
 
 declare const _unregisterHandle:
-  | ((id: string) => void)
+  | UnregisterHandleBridgeFn
   | undefined;
 
 // Types for fetch API

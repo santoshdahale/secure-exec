@@ -2,7 +2,8 @@ import * as esbuild from "esbuild";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const runtimeSourceDir = path.join(process.cwd(), "isolate-runtime");
+const runtimeSourceDir = path.join(process.cwd(), "isolate-runtime", "src");
+const runtimeInjectDir = path.join(runtimeSourceDir, "inject");
 const runtimeDistDir = path.join(process.cwd(), "dist", "isolate-runtime");
 const generatedManifestPath = path.join(
 	process.cwd(),
@@ -30,7 +31,7 @@ async function collectTypeScriptFiles(dir) {
 
 function toSourceId(filePath) {
 	const relativePath = path
-		.relative(runtimeSourceDir, filePath)
+		.relative(runtimeInjectDir, filePath)
 		.split(path.sep)
 		.join("/");
 	const noExt = relativePath.replace(/\.ts$/, "");
@@ -64,13 +65,13 @@ function createManifestSource(sourceEntries) {
 await fs.mkdir(runtimeDistDir, { recursive: true });
 await fs.mkdir(path.dirname(generatedManifestPath), { recursive: true });
 
-const sourceFiles = (await collectTypeScriptFiles(runtimeSourceDir)).sort();
+const sourceFiles = (await collectTypeScriptFiles(runtimeInjectDir)).sort();
 const runtimeSources = {};
 
 for (const sourceFile of sourceFiles) {
 	const sourceId = toSourceId(sourceFile);
 	const relativePath = path
-		.relative(runtimeSourceDir, sourceFile)
+		.relative(runtimeInjectDir, sourceFile)
 		.split(path.sep)
 		.join("/");
 	const outputFile = path.join(
@@ -79,15 +80,21 @@ for (const sourceFile of sourceFiles) {
 	);
 	await fs.mkdir(path.dirname(outputFile), { recursive: true });
 
-	const sourceText = await fs.readFile(sourceFile, "utf8");
-	const transformed = await esbuild.transform(sourceText, {
-		loader: "ts",
+	const buildResult = await esbuild.build({
+		entryPoints: [sourceFile],
+		bundle: true,
 		format: "iife",
 		target: "es2022",
 		platform: "browser",
+		write: false,
+		logLevel: "silent",
 	});
+	const output = buildResult.outputFiles[0];
+	if (!output) {
+		throw new Error(`Failed to build isolate runtime entry: ${sourceFile}`);
+	}
 
-	const compiledCode = transformed.code.trimEnd() + "\n";
+	const compiledCode = output.text.trimEnd() + "\n";
 	runtimeSources[sourceId] = compiledCode;
 	await fs.writeFile(outputFile, compiledCode, "utf8");
 }

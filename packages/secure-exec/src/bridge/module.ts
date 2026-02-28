@@ -1,14 +1,17 @@
 import { exposeCustomGlobal } from "../shared/global-exposure.js";
+import type {
+	ModuleCacheBridgeRecord,
+	RequireFromBridgeFn,
+	ResolveModuleBridgeRef,
+} from "../shared/bridge-contract.js";
 
 // Module polyfill for isolated-vm
 // Provides module.createRequire and other module utilities for npm compatibility
 
 // Declare host bridge globals that are set up by setupRequire()
-declare const _requireFrom: (request: string, dirname: string) => unknown;
-declare const _resolveModule: {
-  applySyncPromise(ctx: undefined, args: [string, string]): string | null;
-};
-declare const _moduleCache: Record<string, { exports: unknown }>;
+declare const _requireFrom: RequireFromBridgeFn;
+declare const _resolveModule: ResolveModuleBridgeRef;
+declare const _moduleCache: ModuleCacheBridgeRecord;
 
 // Path utilities for module resolution
 function _pathDirname(p: string): string {
@@ -161,7 +164,7 @@ export function createRequire(filename: string | URL): RequireFunction {
   requireFn.resolve = resolve;
 
   // Add require.cache reference to global module cache
-  requireFn.cache = _moduleCache;
+  requireFn.cache = _moduleCache as Record<string, { exports: unknown }>;
 
   // Add require.main (null for dynamically created require)
   requireFn.main = undefined;
@@ -267,7 +270,10 @@ export class Module {
     },
   };
 
-  static _cache = typeof _moduleCache !== "undefined" ? _moduleCache : {};
+  static _cache =
+    typeof _moduleCache !== "undefined"
+      ? (_moduleCache as Record<string, { exports: unknown }>)
+      : {};
 
   static _resolveFilename(
     request: string,

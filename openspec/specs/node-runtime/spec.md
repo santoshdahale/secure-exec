@@ -319,7 +319,7 @@ Module projection SHALL reject native addon artifacts (`.node`) so projected dep
 - **THEN** projection MUST fail deterministically and MUST NOT make that native addon loadable in sandbox runtime
 
 ### Requirement: Isolate-Executed Bootstrap Sources MUST Be Static TypeScript Modules
-Any source code evaluated inside the isolate for runtime/bootstrap setup MUST originate from static files under `packages/secure-exec/isolate-runtime/` and MUST be tracked as normal TypeScript source.
+Any source code evaluated inside the isolate for runtime/bootstrap setup MUST originate from static files under `packages/secure-exec/isolate-runtime/src/` and MUST be tracked as normal TypeScript source with inject entrypoints rooted in `packages/secure-exec/isolate-runtime/src/inject/`.
 
 #### Scenario: Runtime injects require and bridge bootstrap code
 - **WHEN** secure-exec prepares isolate bootstrap code for `require` setup, bridge setup, or related runtime helpers
@@ -327,14 +327,14 @@ Any source code evaluated inside the isolate for runtime/bootstrap setup MUST or
 
 #### Scenario: New isolate injection path is introduced
 - **WHEN** a change adds a new host-to-isolate code injection path
-- **THEN** the injected code MUST be added as a static `.ts` file under `packages/secure-exec/isolate-runtime/` in the same change
+- **THEN** the injected code MUST be added as a static `.ts` file under `packages/secure-exec/isolate-runtime/src/inject/` in the same change
 
 #### Scenario: Existing template-generated bootstrap helper is migrated
 - **WHEN** secure-exec migrates helpers such as `getRequireSetupCode`, `getBridgeWithConfig`, or `createInitialBridgeGlobalsCode`
 - **THEN** the executable isolate source for those helpers MUST come from static isolate-runtime files rather than template-literal code builders in host runtime modules
 
 ### Requirement: Isolate-Runtime Compilation MUST Be a Build Prerequisite
-The secure-exec package build MUST execute isolate-runtime compilation before producing final runtime artifacts, and build orchestration MUST treat isolate-runtime compilation as an explicit dependency.
+The secure-exec package build MUST execute isolate-runtime compilation before producing final runtime artifacts, and build orchestration MUST treat isolate-runtime compilation and isolate-runtime typecheck as explicit validation dependencies.
 
 #### Scenario: Package build runs with clean outputs
 - **WHEN** `packages/secure-exec` is built from a clean workspace
@@ -343,6 +343,10 @@ The secure-exec package build MUST execute isolate-runtime compilation before pr
 #### Scenario: Turbo build graph resolves secure-exec build dependencies
 - **WHEN** turbo runs `build` for secure-exec
 - **THEN** the task graph MUST enforce `build:isolate-runtime` as a dependency of secure-exec `build`
+
+#### Scenario: Isolate runtime source typing regresses
+- **WHEN** isolate-runtime inject/common source introduces type errors against the declared runtime global contracts
+- **THEN** repository type validation MUST fail before changes are considered complete
 
 ### Requirement: Isolate Injection Assembly MUST Avoid Template-Literal Source Synthesis
 Host runtime code paths that inject executable source into the isolate MUST NOT construct those executable payloads via template-literal code generation.

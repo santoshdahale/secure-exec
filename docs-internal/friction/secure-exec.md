@@ -17,6 +17,10 @@
    - Symptom: helper paths like `getRequireSetupCode`, bridge bootstrap wrappers, and inline `context.eval` setup snippets were assembled in host runtime files, which made isolate-executed code harder to audit and easier to regress.
    - Fix: moved host-injected isolate scripts into static sources under `packages/secure-exec/isolate-runtime/`, added `build:isolate-runtime` to compile them into `dist/isolate-runtime/**` and generate `src/generated/isolate-runtime.ts`, and updated Node/browser runtime loaders to consume these static artifacts via manifest IDs.
 
+2. **[resolved]** Bridge/global type contracts drifted across host wiring, bridge modules, and isolate-runtime declarations.
+   - Symptom: host injection keys, bridge global declarations, and isolate-runtime global types were defined ad hoc in multiple files, leaving boundary typing inconsistent and prone to regressions.
+   - Fix: added canonical shared bridge contract definitions in `packages/secure-exec/src/shared/bridge-contract.ts`, migrated bridge modules and `src/index.ts` wiring to shared keys/types, coupled isolate-runtime declarations to shared types via type-only imports, and added `packages/secure-exec/tests/bridge-contract.test.ts` to enforce key/type registry consistency.
+
 ## 2026-02-27
 
 1. **[resolved]** Runtime CPU budget enforcement was not wired end-to-end.
@@ -51,15 +55,19 @@
    - Symptom: runtime-owned global bindings were exposed through mixed assignment patterns, letting sandbox code overwrite control-plane globals in some paths.
    - Fix: custom global exposure now uses shared helper policy in `packages/secure-exec/src/shared/global-exposure.ts` with hardened defaults (`writable: false`, `configurable: false`), plus explicit mutable runtime-state allowlist entries. Node stdlib globals remain compatibility-oriented and are not force-frozen by this policy.
 
-9. TODO: convert IO handling to a generalized implementation reusable across runtimes.
+9. **[resolved]** Isolate-runtime source layout and typing contracts were hard to maintain.
+   - Symptom: isolate inject scripts were kept in a flat directory with repetitive `globalThis as Record<string, unknown>` casts, making global contracts harder to audit and weakening type safety.
+   - Fix: moved inject sources to `packages/secure-exec/isolate-runtime/src/inject/`, moved shared helpers/contracts to `packages/secure-exec/isolate-runtime/src/common/`, updated isolate-runtime build manifest generation for `src/inject` entrypoints with bundled shared modules, and added dedicated isolate-runtime typecheck coverage via `tsconfig.isolate-runtime.json`.
+
+10. TODO: convert IO handling to a generalized implementation reusable across runtimes.
    - Symptom: runtime-specific IO paths are still implemented separately, which increases duplication and behavior drift risk between Node and browser runtime surfaces.
    - Next step: define a shared IO abstraction (request/response/stream/error contracts) and migrate runtime-specific adapters to that interface with parity tests across runtimes.
 
-10. TODO: verify timer and event-rate controls for runtime abuse resistance.
+11. TODO: verify timer and event-rate controls for runtime abuse resistance.
    - Symptom: control-plane limits for `setInterval`, `setImmediate`, and high-frequency event emission are not explicitly validated end-to-end, which risks starvation/DoS behavior under hostile workloads.
    - Next step: add dedicated stress/regression coverage that asserts bounded scheduling/event throughput and deterministic failure behavior when limits are exceeded.
 
-11. TODO: remove temporary `@ts-nocheck` bypasses in bridge/browser internals.
+12. TODO: remove temporary `@ts-nocheck` bypasses in bridge/browser internals.
    - Symptom: type/build/test green status currently depends on file-level `@ts-nocheck` in bridge/browser modules, which suppresses useful type-safety guarantees.
    - Next step: replace each bypass with concrete type fixes and keep `pnpm check-types`, `pnpm build`, and `pnpm test` passing without `@ts-nocheck`.
 

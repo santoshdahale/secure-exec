@@ -49,6 +49,10 @@ import {
 	HARDENED_NODE_CUSTOM_GLOBALS,
 	MUTABLE_NODE_CUSTOM_GLOBALS,
 } from "./shared/global-exposure.js";
+import {
+	HOST_BRIDGE_GLOBAL_KEYS,
+	RUNTIME_BRIDGE_GLOBAL_KEYS,
+} from "./shared/bridge-contract.js";
 import { getRequireSetupCode } from "./shared/require-setup.js";
 import type {
 	CommandExecutor,
@@ -852,7 +856,7 @@ export class NodeProcess {
 			},
 		);
 
-		await jail.set("_dynamicImport", dynamicImportRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.dynamicImport, dynamicImportRef);
 		await jail.set(
 			"__runtimeDynamicImportConfig",
 			{ referrerPath },
@@ -949,9 +953,9 @@ export class NodeProcess {
 			},
 		);
 
-		await jail.set("_loadPolyfill", loadPolyfillRef);
-		await jail.set("_resolveModule", resolveModuleRef);
-		await jail.set("_loadFile", loadFileRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.loadPolyfill, loadPolyfillRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.resolveModule, resolveModuleRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.loadFile, loadFileRef);
 
 		// Set up timer Reference for actual delays (not just microtasks)
 		// This allows setTimeout/setInterval to use real host-side timers
@@ -961,7 +965,7 @@ export class NodeProcess {
 				globalThis.setTimeout(resolve, delayMs);
 			});
 		});
-		await jail.set("_scheduleTimer", scheduleTimerRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.scheduleTimer, scheduleTimerRef);
 
 		// Set up host crypto references for secure randomness.
 		const cryptoRandomFillRef = new ivm.Reference((byteLength: number) => {
@@ -972,8 +976,8 @@ export class NodeProcess {
 		const cryptoRandomUuidRef = new ivm.Reference(() => {
 			return randomUUID();
 		});
-		await jail.set("_cryptoRandomFill", cryptoRandomFillRef);
-		await jail.set("_cryptoRandomUUID", cryptoRandomUuidRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoRandomFill, cryptoRandomFillRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoRandomUuid, cryptoRandomUuidRef);
 
 		// Set up fs References (stubbed if filesystem is disabled)
 		{
@@ -1048,17 +1052,17 @@ export class NodeProcess {
 			);
 
 			// Set up each fs Reference individually in the isolate
-			await jail.set("_fsReadFile", readFileRef);
-			await jail.set("_fsWriteFile", writeFileRef);
-			await jail.set("_fsReadFileBinary", readFileBinaryRef);
-			await jail.set("_fsWriteFileBinary", writeFileBinaryRef);
-			await jail.set("_fsReadDir", readDirRef);
-			await jail.set("_fsMkdir", mkdirRef);
-			await jail.set("_fsRmdir", rmdirRef);
-			await jail.set("_fsExists", existsRef);
-			await jail.set("_fsStat", statRef);
-			await jail.set("_fsUnlink", unlinkRef);
-			await jail.set("_fsRename", renameRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsReadFile, readFileRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsWriteFile, writeFileRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsReadFileBinary, readFileBinaryRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsWriteFileBinary, writeFileBinaryRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsReadDir, readDirRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsMkdir, mkdirRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsRmdir, rmdirRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsExists, existsRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsStat, statRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsUnlink, unlinkRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsRename, renameRef);
 
 			// Create the _fs object inside the isolate.
 			await context.eval(getIsolateRuntimeSource("setupFsFacade"));
@@ -1083,9 +1087,12 @@ export class NodeProcess {
 
 			const getDispatchRef = () => {
 				if (!dispatchRef) {
-					dispatchRef = context.global.getSync("_childProcessDispatch", {
+					dispatchRef = context.global.getSync(
+						RUNTIME_BRIDGE_GLOBAL_KEYS.childProcessDispatch,
+						{
 						reference: true,
-					}) as ivm.Reference<
+						},
+					) as ivm.Reference<
 						(
 							sessionId: number,
 							type: "stdout" | "stderr" | "exit",
@@ -1201,11 +1208,11 @@ export class NodeProcess {
 				},
 			);
 
-			await jail.set("_childProcessSpawnStart", spawnStartRef);
-			await jail.set("_childProcessStdinWrite", stdinWriteRef);
-			await jail.set("_childProcessStdinClose", stdinCloseRef);
-			await jail.set("_childProcessKill", killRef);
-			await jail.set("_childProcessSpawnSync", spawnSyncRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.childProcessSpawnStart, spawnStartRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.childProcessStdinWrite, stdinWriteRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.childProcessStdinClose, stdinCloseRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.childProcessKill, killRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.childProcessSpawnSync, spawnSyncRef);
 		}
 
 		// Set up network References (stubbed when disabled)
@@ -1256,7 +1263,7 @@ export class NodeProcess {
 			const getHttpServerDispatchRef = () => {
 				if (!httpServerDispatchRef) {
 					httpServerDispatchRef = context.global.getSync(
-						"_httpServerDispatch",
+						RUNTIME_BRIDGE_GLOBAL_KEYS.httpServerDispatch,
 						{
 							reference: true,
 						},
@@ -1322,11 +1329,23 @@ export class NodeProcess {
 				},
 			);
 
-			await jail.set("_networkFetchRaw", networkFetchRef);
-			await jail.set("_networkDnsLookupRaw", networkDnsLookupRef);
-			await jail.set("_networkHttpRequestRaw", networkHttpRequestRef);
-			await jail.set("_networkHttpServerListenRaw", networkHttpServerListenRef);
-			await jail.set("_networkHttpServerCloseRaw", networkHttpServerCloseRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.networkFetchRaw, networkFetchRef);
+			await jail.set(
+				HOST_BRIDGE_GLOBAL_KEYS.networkDnsLookupRaw,
+				networkDnsLookupRef,
+			);
+			await jail.set(
+				HOST_BRIDGE_GLOBAL_KEYS.networkHttpRequestRaw,
+				networkHttpRequestRef,
+			);
+			await jail.set(
+				HOST_BRIDGE_GLOBAL_KEYS.networkHttpServerListenRaw,
+				networkHttpServerListenRef,
+			);
+			await jail.set(
+				HOST_BRIDGE_GLOBAL_KEYS.networkHttpServerCloseRaw,
+				networkHttpServerCloseRef,
+			);
 		}
 
 		// Install isolate-global descriptor helpers before runtime bootstrap scripts.
@@ -1347,11 +1366,13 @@ export class NodeProcess {
 
 		// Load the bridge bundle which sets up all polyfill modules.
 		await jail.set(
-			"_processConfig",
+			HOST_BRIDGE_GLOBAL_KEYS.processConfig,
 			this.createProcessConfigForExecution(timingMitigation, frozenTimeMs),
 			{ copy: true },
 		);
-		await jail.set("_osConfig", this.osConfig, { copy: true });
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.osConfig, this.osConfig, {
+			copy: true,
+		});
 		await context.eval(getRawBridgeCode());
 		await context.eval(getBridgeAttachCode());
 		await this.applyTimingMitigation(context, timingMitigation, frozenTimeMs);
@@ -1423,8 +1444,8 @@ export class NodeProcess {
 			});
 		});
 
-		await jail.set("_log", logRef);
-		await jail.set("_error", errorRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.log, logRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.error, errorRef);
 
 		await context.eval(getConsoleSetupCode());
 	}
