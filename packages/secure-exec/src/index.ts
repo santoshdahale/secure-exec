@@ -495,7 +495,17 @@ export class NodeProcess {
 			const packageJsonPath =
 				currentDir === "/" ? "/package.json" : `${currentDir}/package.json`;
 
-			if (await this.filesystem.exists(packageJsonPath)) {
+			let hasPackageJson = false;
+			try {
+				hasPackageJson = await this.filesystem.exists(packageJsonPath);
+			} catch (error) {
+				const err = error as NodeJS.ErrnoException;
+				if (err?.code !== "EACCES" && err?.code !== "EPERM") {
+					throw err;
+				}
+			}
+
+			if (hasPackageJson) {
 				try {
 					const packageJsonText =
 						await this.filesystem.readTextFile(packageJsonPath);

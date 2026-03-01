@@ -10,6 +10,9 @@
    - Symptom: sandbox `node_modules` availability varied by `moduleAccess.allowPackages` setup and base filesystem mount location, which added resolver complexity and setup fragility.
    - Fix: Node driver now always composes a read-only `/app/node_modules` overlay from `<cwd>/node_modules`, even without a base filesystem adapter. Overlay reads are canonical-path scoped to `<cwd>/node_modules`; writes/mutations remain denied; `.node` native addons are rejected.
    - Compatibility trade-off: allowlist-scoped dependency visibility was removed in favor of scoped full-overlay readability under `<cwd>/node_modules`; callers needing stricter package-level exposure must enforce it outside runtime for now.
+3. TODO: document extension attack vectors and hardening guidance.
+   - Symptom: extension-oriented threat scenarios are not documented as a consolidated runtime/bridge/driver risk model.
+   - Next step: add extension-focused vectors and mitigations to `docs-internal/todo/attack-vectors.md`, including memory amplification/buffering abuse, CPU amplification, timer/event-rate amplification, and extension host-hook abuse paths.
 
 ## 2026-02-28
 

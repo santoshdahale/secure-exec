@@ -170,12 +170,15 @@ async function resolveNodeModules(
 			packageName,
 		);
 		for (const packageDir of candidatePackageDirs) {
-			const entry = await resolvePackageEntryFromDir(
-				packageDir,
-				subpath,
-				fs,
-				mode,
-			);
+			let entry: string | null;
+			try {
+				entry = await resolvePackageEntryFromDir(packageDir, subpath, fs, mode);
+			} catch (error) {
+				if (isPermissionProbeError(error)) {
+					continue;
+				}
+				throw error;
+			}
 			if (entry) {
 				return entry;
 			}
@@ -187,12 +190,21 @@ async function resolveNodeModules(
 
 	// Also check root node_modules
 	const rootPackageDir = join("/node_modules", packageName);
-	const rootEntry = await resolvePackageEntryFromDir(
-		rootPackageDir,
-		subpath,
-		fs,
-		mode,
-	);
+	let rootEntry: string | null;
+	try {
+		rootEntry = await resolvePackageEntryFromDir(
+			rootPackageDir,
+			subpath,
+			fs,
+			mode,
+		);
+	} catch (error) {
+		if (isPermissionProbeError(error)) {
+			rootEntry = null;
+		} else {
+			throw error;
+		}
+	}
 	if (rootEntry) {
 		return rootEntry;
 	}
@@ -239,7 +251,7 @@ async function resolvePackageEntryFromDir(
 	const pkgJsonPath = join(packageDir, "package.json");
 	const pkgJson = await readPackageJson(fs, pkgJsonPath);
 
-	if (!pkgJson && !(await fs.exists(packageDir))) {
+	if (!pkgJson && !(await safeExists(fs, packageDir))) {
 		return null;
 	}
 
@@ -298,7 +310,7 @@ async function resolvePath(
 	// For extensionless specifiers, try files before directory resolution.
 	for (const ext of FILE_EXTENSIONS) {
 		const withExt = `${basePath}${ext}`;
-		if (await fs.exists(withExt)) {
+		if (await safeExists(fs, withExt)) {
 			return withExt;
 		}
 	}
@@ -316,12 +328,12 @@ async function resolvePath(
 			}
 		}
 
-		for (const ext of FILE_EXTENSIONS) {
-			const indexPath = join(basePath, `index${ext}`);
-			if (await fs.exists(indexPath)) {
-				return indexPath;
+			for (const ext of FILE_EXTENSIONS) {
+				const indexPath = join(basePath, `index${ext}`);
+				if (await safeExists(fs, indexPath)) {
+					return indexPath;
+				}
 			}
-		}
 
 	}
 
@@ -332,13 +344,29 @@ async function readPackageJson(
 	fs: VirtualFileSystem,
 	pkgJsonPath: string,
 ): Promise<PackageJson | null> {
-	if (!(await fs.exists(pkgJsonPath))) {
+	if (!(await safeExists(fs, pkgJsonPath))) {
 		return null;
 	}
 	try {
 		return JSON.parse(await fs.readTextFile(pkgJsonPath)) as PackageJson;
 	} catch {
 		return null;
+	}
+}
+
+function isPermissionProbeError(error: unknown): boolean {
+	const err = error as NodeJS.ErrnoException;
+	return err?.code === "EACCES" || err?.code === "EPERM";
+}
+
+async function safeExists(fs: VirtualFileSystem, path: string): Promise<boolean> {
+	try {
+		return await fs.exists(path);
+	} catch (error) {
+		if (isPermissionProbeError(error)) {
+			return false;
+		}
+		throw error;
 	}
 }
 
