@@ -7,8 +7,13 @@ import type {
 	TimingMitigation,
 } from "./shared/api-types.js";
 
-export function formatCapturedOutput(lines: string[]): string {
-	return lines.join("\n") + (lines.length > 0 ? "\n" : "");
+const MAX_ERROR_MESSAGE_CHARS = 8192;
+
+function boundErrorMessage(message: string): string {
+	if (message.length <= MAX_ERROR_MESSAGE_CHARS) {
+		return message;
+	}
+	return `${message.slice(0, MAX_ERROR_MESSAGE_CHARS)}...[Truncated]`;
 }
 
 type ExecuteOptions = {
@@ -107,7 +112,6 @@ export async function executeWithRuntime<T = unknown>(
 	runtime.activeHttpServerIds.clear();
 
 	const context = await runtime.isolate.createContext();
-	const stderr: string[] = [];
 	const timingMitigation = runtime.getTimingMitigation(options.timingMitigation);
 	const frozenTimeMs = Date.now();
 	const cpuTimeLimitMs = runtime.getExecutionTimeoutMs(options.cpuTimeLimitMs);
@@ -233,19 +237,15 @@ export async function executeWithRuntime<T = unknown>(
 		})) as number;
 
 		return {
-			stdout: "",
-			stderr: formatCapturedOutput(stderr),
 			code: exitCode,
 			exports,
 		};
 	} catch (err) {
 		if (runtime.isExecutionTimeoutError(err)) {
 			recycleIsolateAfterTimeout = true;
-			stderr.push(runtime.timeoutErrorMessage);
 			return {
-				stdout: "",
-				stderr: formatCapturedOutput(stderr),
 				code: runtime.timeoutExitCode,
+				errorMessage: runtime.timeoutErrorMessage,
 				exports: undefined as T,
 			};
 		}
@@ -256,18 +256,14 @@ export async function executeWithRuntime<T = unknown>(
 		if (exitMatch) {
 			const exitCode = parseInt(exitMatch[1], 10);
 			return {
-				stdout: "",
-				stderr: formatCapturedOutput(stderr),
 				code: exitCode,
 				exports: undefined as T,
 			};
 		}
 
-		stderr.push(errMessage);
 		return {
-			stdout: "",
-			stderr: formatCapturedOutput(stderr),
 			code: 1,
+			errorMessage: boundErrorMessage(errMessage),
 			exports: undefined as T,
 		};
 	} finally {

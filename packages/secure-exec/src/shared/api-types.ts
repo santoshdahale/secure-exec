@@ -40,10 +40,12 @@ export interface OSConfig {
 	hostname?: string;
 }
 
-export interface RunResult<T = unknown> {
-	stdout: string;
-	stderr: string;
+export interface ExecutionStatus {
 	code: number;
+	errorMessage?: string;
+}
+
+export interface RunResult<T = unknown> extends ExecutionStatus {
 	exports?: T;
 }
 
@@ -61,8 +63,4 @@ export interface ExecOptions {
 	onConsoleLog?: ConsoleLogHook;
 }
 
-export interface ExecResult {
-	stdout: string;
-	stderr: string;
-	code: number;
-}
+export interface ExecResult extends ExecutionStatus {}

@@ -14,10 +14,17 @@ description: Get secure-exec running from TypeScript in a few minutes.
     import { NodeProcess, createNodeDriver } from "secure-exec";
 
     const proc = new NodeProcess({ driver: createNodeDriver({}) });
-    const result = await proc.exec("console.log('hello from secure-exec')");
-    console.log(result.stdout);
+    const logs: string[] = [];
+    const result = await proc.exec("console.log('hello from secure-exec')", {
+      onConsoleLog: (event) => {
+        logs.push(`[${event.channel}] ${event.message}`);
+      },
+    });
+    if (result.errorMessage) {
+      throw new Error(result.errorMessage);
+    }
+    console.log(logs.join("\n"));
     await proc.dispose();
     ```
   </Step>
 </Steps>
-

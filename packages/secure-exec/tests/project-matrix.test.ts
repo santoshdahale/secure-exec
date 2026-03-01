@@ -78,6 +78,13 @@ function formatConsoleChannel(
 	return lines.join("\n") + (lines.length > 0 ? "\n" : "");
 }
 
+function formatErrorOutput(errorMessage: string | undefined): string {
+	if (!errorMessage) {
+		return "";
+	}
+	return errorMessage.endsWith("\n") ? errorMessage : `${errorMessage}\n`;
+}
+
 const discoveredFixtures = await discoverFixtures();
 
 describe("compatibility project matrix", () => {
@@ -419,7 +426,8 @@ async function runSandboxExecution(
 				code: result.code,
 				stdout: formatConsoleChannel(capturedEvents, "stdout"),
 				stderr:
-					formatConsoleChannel(capturedEvents, "stderr") + result.stderr,
+					formatConsoleChannel(capturedEvents, "stderr") +
+					formatErrorOutput(result.errorMessage),
 			},
 			projectDir,
 		);
@@ -464,7 +472,8 @@ async function runOverlaySandboxExecution(
 				code: result.code,
 				stdout: formatConsoleChannel(capturedEvents, "stdout"),
 				stderr:
-					formatConsoleChannel(capturedEvents, "stderr") + result.stderr,
+					formatConsoleChannel(capturedEvents, "stderr") +
+					formatErrorOutput(result.errorMessage),
 			},
 			projectDir,
 		);

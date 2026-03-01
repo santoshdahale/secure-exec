@@ -1,13 +1,10 @@
 import { createEaccesError, createEnosysError } from "./errors.js";
 import type {
-	ChildProcessAccessRequest,
 	CommandExecutor,
 	EnvAccessRequest,
 	FsAccessRequest,
-	NetworkAccessRequest,
 	NetworkAdapter,
 	Permissions,
-	SpawnedProcess,
 	VirtualFileSystem,
 } from "../types.js";
 

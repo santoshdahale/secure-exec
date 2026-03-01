@@ -72,6 +72,14 @@ let permissions: Permissions | undefined;
 let initialized = false;
 
 const dynamicImportCache = new Map<string, unknown>();
+const MAX_ERROR_MESSAGE_CHARS = 8192;
+
+function boundErrorMessage(message: string): string {
+	if (message.length <= MAX_ERROR_MESSAGE_CHARS) {
+		return message;
+	}
+	return `${message.slice(0, MAX_ERROR_MESSAGE_CHARS)}...[Truncated]`;
+}
 
 function revivePermission(source?: string): ((req: unknown) => { allow: boolean }) | undefined {
 	if (!source) return undefined;
@@ -362,27 +370,17 @@ function setDynamicImportFallback(): void {
 }
 
 function captureConsole(): {
-	stdout: string[];
-	stderr: string[];
 	restore: () => void;
 } {
-	const stdout: string[] = [];
-	const stderr: string[] = [];
 	const original = console;
-	const serialize = (args: unknown[]) =>
-		args
-			.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
-			.join(" ");
 	const sandboxConsole = {
-		log: (...args: unknown[]) => stdout.push(serialize(args)),
-		info: (...args: unknown[]) => stdout.push(serialize(args)),
-		warn: (...args: unknown[]) => stderr.push(serialize(args)),
-		error: (...args: unknown[]) => stderr.push(serialize(args)),
+		log: () => undefined,
+		info: () => undefined,
+		warn: () => undefined,
+		error: () => undefined,
 	};
 	(globalThis as Record<string, unknown>).console = sandboxConsole;
 	return {
-		stdout,
-		stderr,
 		restore: () => {
 			(globalThis as Record<string, unknown>).console = original;
 		},
@@ -419,7 +417,7 @@ async function execScript(
 	updateProcessConfig(options);
 	setDynamicImportFallback();
 
-	const { stdout, stderr, restore } = captureConsole();
+	const { restore } = captureConsole();
 	try {
 		let transformed = code;
 		if (isESM(code, options?.filePath)) {
@@ -456,8 +454,6 @@ async function execScript(
 				?.exitCode ?? 0;
 
 		return {
-			stdout: stdout.join("\n") + (stdout.length ? "\n" : ""),
-			stderr: stderr.join("\n") + (stderr.length ? "\n" : ""),
 			code: exitCode,
 		};
 	} catch (err) {
@@ -466,16 +462,12 @@ async function execScript(
 		if (exitMatch) {
 			const exitCode = Number.parseInt(exitMatch[1], 10);
 			return {
-				stdout: stdout.join("\n") + (stdout.length ? "\n" : ""),
-				stderr: stderr.join("\n") + (stderr.length ? "\n" : ""),
 				code: exitCode,
 			};
 		}
-		stderr.push(message);
 		return {
-			stdout: stdout.join("\n") + (stdout.length ? "\n" : ""),
-			stderr: stderr.join("\n") + (stderr.length ? "\n" : ""),
 			code: 1,
+			errorMessage: boundErrorMessage(message),
 		};
 	} finally {
 		restore();

@@ -232,7 +232,7 @@ Any change that introduces or modifies driver-managed host module projection or 
 - **THEN** `docs/security-model.mdx` MUST describe the boundary and the enforced `<cwd>/node_modules` containment contract
 
 ### Requirement: Logging Capture Contract Changes MUST Update Compatibility And Security Docs
-Any change that introduces or modifies runtime log-capture defaults or hook-based logging behavior MUST update compatibility/friction/security documentation in the same change.
+Any change that introduces or modifies runtime log-capture defaults or hook-based logging behavior MUST update compatibility/friction/security documentation in the same change and MUST include exploit-oriented regression tests for host resource amplification.
 
 #### Scenario: Runtime switches default logging behavior
 - **WHEN** runtime logging defaults change (for example from buffered capture to log-drop)
@@ -241,4 +241,8 @@ Any change that introduces or modifies runtime log-capture defaults or hook-base
 #### Scenario: Runtime introduces or changes log-stream hook behavior
 - **WHEN** runtime log-stream hook contract changes (event shape, ordering semantics, or failure behavior)
 - **THEN** `docs/security-model.mdx` MUST describe trust-boundary and resource-consumption implications and `docs/node-compatability.mdx` MUST reflect user-visible behavior changes where applicable
+
+#### Scenario: Logging changes include exploit regression coverage
+- **WHEN** logging/output behavior is changed in runtime or bridge paths
+- **THEN** the same change MUST include tests that assert high-volume log emission does not create unbounded host-memory accumulation
 

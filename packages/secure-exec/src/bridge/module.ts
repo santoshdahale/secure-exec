@@ -21,32 +21,6 @@ function _pathDirname(p: string): string {
   return p.slice(0, lastSlash);
 }
 
-function _pathResolve(...segments: string[]): string {
-  let resolvedPath = "";
-  let resolvedAbsolute = false;
-
-  for (let i = segments.length - 1; i >= 0 && !resolvedAbsolute; i--) {
-    const segment = segments[i];
-    if (!segment) continue;
-
-    resolvedPath = segment + "/" + resolvedPath;
-    resolvedAbsolute = segment.charAt(0) === "/";
-  }
-
-  // Normalize the path
-  const parts = resolvedPath.split("/").filter(Boolean);
-  const result: string[] = [];
-  for (const part of parts) {
-    if (part === "..") {
-      result.pop();
-    } else if (part !== ".") {
-      result.push(part);
-    }
-  }
-
-  return (resolvedAbsolute ? "/" : "") + result.join("/") || ".";
-}
-
 function _parseFileUrl(url: string): string {
   // Handle file:// URLs
   if (url.startsWith("file://")) {

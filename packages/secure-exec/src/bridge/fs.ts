@@ -163,7 +163,6 @@ class ReadStream {
 
   // Internal state
   private _content: Buffer | null = null;
-  private _position: number = 0;
   private _listeners: Map<string | symbol, Array<(...args: unknown[]) => void>> = new Map();
   private _started: boolean = false;
 
@@ -741,7 +740,6 @@ type PathLike = nodeFs.PathLike;
 type PathOrFileDescriptor = nodeFs.PathOrFileDescriptor;
 type OpenMode = nodeFs.OpenMode;
 type Mode = nodeFs.Mode;
-type Encoding = BufferEncoding | null;
 type ReadFileOptions = Parameters<typeof nodeFs.readFileSync>[1];
 type WriteFileOptions = nodeFs.WriteFileOptions;
 type MakeDirectoryOptions = nodeFs.MakeDirectoryOptions;
@@ -1857,18 +1855,6 @@ const fs = {
     throw new Error("fs.utimes is not supported in sandbox");
   },
 };
-
-// Type check: validate that our fs implementation has compatible method signatures
-// We use a custom type that omits Node.js internal properties like __promisify__
-type FsMethodNames = keyof typeof fs;
-type NodeFsMethodSignature<K extends keyof typeof nodeFs> =
-  typeof nodeFs[K] extends (...args: infer A) => infer R ? (...args: A) => R : typeof nodeFs[K];
-
-// Validate key sync methods match Node.js signatures
-type _CheckReadFileSync = typeof fs.readFileSync extends NodeFsMethodSignature<'readFileSync'> ? true : false;
-type _CheckWriteFileSync = typeof fs.writeFileSync extends NodeFsMethodSignature<'writeFileSync'> ? true : false;
-type _CheckStatSync = typeof fs.statSync extends NodeFsMethodSignature<'statSync'> ? true : false;
-type _CheckExistsSync = typeof fs.existsSync extends NodeFsMethodSignature<'existsSync'> ? true : false;
 
 // Export the fs module
 export default fs;

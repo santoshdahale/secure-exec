@@ -97,7 +97,7 @@ describe("NodeProcess payload limits", () => {
     `);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("5\n");
 
 		const copied = await fs.readFile("/data/copy.bin");
@@ -119,8 +119,8 @@ describe("NodeProcess payload limits", () => {
     `);
 
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain(PAYLOAD_LIMIT_ERROR_CODE);
-		expect(result.stderr).toContain("fs.readFileBinary");
+		expect(result.errorMessage).toContain(PAYLOAD_LIMIT_ERROR_CODE);
+		expect(result.errorMessage).toContain("fs.readFileBinary");
 	});
 
 	it("rejects oversized binary writes before base64 decode", async () => {
@@ -137,8 +137,8 @@ describe("NodeProcess payload limits", () => {
     `);
 
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain(PAYLOAD_LIMIT_ERROR_CODE);
-		expect(result.stderr).toContain("fs.writeFileBinary");
+		expect(result.errorMessage).toContain(PAYLOAD_LIMIT_ERROR_CODE);
+		expect(result.errorMessage).toContain("fs.writeFileBinary");
 		expect(await fs.exists("/data/too-large-write.bin")).toBe(false);
 	});
 
@@ -160,7 +160,7 @@ describe("NodeProcess payload limits", () => {
     `);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("ok\n");
 	});
 
@@ -180,8 +180,8 @@ describe("NodeProcess payload limits", () => {
     `);
 
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain(PAYLOAD_LIMIT_ERROR_CODE);
-		expect(result.stderr).toContain("network.fetch options");
+		expect(result.errorMessage).toContain(PAYLOAD_LIMIT_ERROR_CODE);
+		expect(result.errorMessage).toContain("network.fetch options");
 	});
 
 	it("allows larger base64 payloads with in-range configured limits", async () => {
@@ -207,7 +207,7 @@ describe("NodeProcess payload limits", () => {
     `);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("ok\n");
 		const stored = await fs.readFile("/data/large-configured.bin");
 		expect(stored.byteLength).toBe(oversizedRawBytes);
@@ -232,7 +232,7 @@ describe("NodeProcess payload limits", () => {
     `);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("ok\n");
 	});
 

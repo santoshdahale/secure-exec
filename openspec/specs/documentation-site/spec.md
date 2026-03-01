@@ -15,7 +15,7 @@ The documentation site SHALL expose a core navigation set that includes Quicksta
 - **THEN** the docs site MUST resolve and render `node-compatability.mdx` successfully
 
 ### Requirement: Quickstart Uses Steps With Runnable Example
-The Quickstart page SHALL present onboarding steps using Mintlify `<Steps>` and SHALL include at least one basic runnable example that verifies setup success.
+The Quickstart page SHALL present onboarding steps using Mintlify `<Steps>` and SHALL include at least one basic runnable example that verifies setup success using the current runtime logging contract.
 
 #### Scenario: Steps component structures onboarding
 - **WHEN** the Quickstart page is rendered
@@ -24,6 +24,10 @@ The Quickstart page SHALL present onboarding steps using Mintlify `<Steps>` and 
 #### Scenario: Quickstart includes basic verification example
 - **WHEN** a user follows the Quickstart page
 - **THEN** the page MUST provide at least one concrete command example and expected successful outcome text
+
+#### Scenario: Quickstart does not rely on legacy buffered output fields
+- **WHEN** Quickstart demonstrates how to read execution logs
+- **THEN** it MUST use hook-based log streaming examples and MUST NOT instruct users to read `result.stdout` or `result.stderr`
 
 ### Requirement: Node Compatibility Page Declares Target Version and Matrix
 The docs site MUST provide `docs/node-compatability.mdx` with an explicit target Node version statement near the top of the page and a clean compatibility matrix table that summarizes module support tier and runtime notes.
@@ -39,3 +43,4 @@ The docs site MUST provide `docs/node-compatability.mdx` with an explicit target
 #### Scenario: Permission model scope stays at runtime and bridge contract
 - **WHEN** `node-compatability.mdx` documents permission behavior
 - **THEN** it MUST describe core runtime/bridge permission enforcement and MUST NOT present driver-construction convenience defaults as the canonical security contract
+

@@ -29,6 +29,13 @@ function formatConsoleChannel(
 	return lines.join("\n") + (lines.length > 0 ? "\n" : "");
 }
 
+function formatErrorOutput(errorMessage: string | undefined): string {
+	if (!errorMessage) {
+		return "";
+	}
+	return errorMessage.endsWith("\n") ? errorMessage : `${errorMessage}\n`;
+}
+
 describe("moduleAccess compatibility fixture", () => {
 	const tempDirs: string[] = [];
 	let proc: NodeProcess | undefined;
@@ -98,12 +105,13 @@ describe("moduleAccess compatibility fixture", () => {
 			});
 
 			expect(sandboxResult.code).toBe(0);
-			expect(sandboxResult.stdout).toBe("");
+			expect(sandboxResult).not.toHaveProperty("stdout");
 			expect(formatConsoleChannel(capturedEvents, "stdout")).toBe(
 				hostResult.stdout,
 			);
 			expect(
-				formatConsoleChannel(capturedEvents, "stderr") + sandboxResult.stderr,
+				formatConsoleChannel(capturedEvents, "stderr") +
+					formatErrorOutput(sandboxResult.errorMessage),
 			).toBe(hostResult.stderr);
 		},
 		TEST_TIMEOUT_MS,

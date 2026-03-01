@@ -5,7 +5,8 @@
 1. **[resolved]** Default console capture buffered unbounded host memory.
    - Symptom: runtime execution accumulated console output in host-managed `stdout`/`stderr` arrays by default, enabling memory amplification under high-volume logs.
    - Fix: runtime now drops console output by default and exposes an explicit streaming hook (`onConsoleLog`) for host-controlled log handling.
-   - Compatibility trade-off: `exec()`/`run()` no longer mirror Node stdout/stderr buffering by default; consumers that need console output must opt into hook-based streaming.
+   - Compatibility trade-off: `exec()`/`run()` no longer mirror Node stdout/stderr buffering by default; result payloads no longer expose `stdout`/`stderr` fields, so consumers that need logs must opt into hook-based streaming.
+   - Migration note: switch any `result.stderr` checks to `result.errorMessage` for runtime error assertions.
 2. **[resolved]** Node module loading depended on allowlist projection setup and split filesystem paths.
    - Symptom: sandbox `node_modules` availability varied by `moduleAccess.allowPackages` setup and base filesystem mount location, which added resolver complexity and setup fragility.
    - Fix: Node driver now always composes a read-only `/app/node_modules` overlay from `<cwd>/node_modules`, even without a base filesystem adapter. Overlay reads are canonical-path scoped to `<cwd>/node_modules`; writes/mutations remain denied; `.node` native addons are rejected.

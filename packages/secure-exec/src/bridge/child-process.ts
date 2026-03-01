@@ -86,7 +86,6 @@ type EventListener = (...args: unknown[]) => void;
 // Stream stub for stdin
 interface StdinStream {
   writable: boolean;
-  _buffer: unknown[];
   write(data: unknown): boolean;
   end(): void;
   on(): StdinStream;
@@ -97,7 +96,6 @@ interface StdinStream {
 // Stream stub for stdout/stderr
 interface OutputStreamStub {
   readable: boolean;
-  _data: string;
   _listeners: Record<string, EventListener[]>;
   _onceListeners: Record<string, EventListener[]>;
   on(event: string, listener: EventListener): OutputStreamStub;
@@ -130,9 +128,7 @@ class ChildProcess {
     // Create stdin stream stub
     this.stdin = {
       writable: true,
-      _buffer: [],
-      write(data: unknown): boolean {
-        this._buffer.push(data);
+      write(_data: unknown): boolean {
         return true;
       },
       end(): void {
@@ -152,7 +148,6 @@ class ChildProcess {
     // Create stdout stream stub
     this.stdout = {
       readable: true,
-      _data: "",
       _listeners: {},
       _onceListeners: {},
       on(event: string, listener: EventListener): OutputStreamStub {
@@ -189,7 +184,6 @@ class ChildProcess {
     // Create stderr stream stub
     this.stderr = {
       readable: true,
-      _data: "",
       _listeners: {},
       _onceListeners: {},
       on(event: string, listener: EventListener): OutputStreamStub {

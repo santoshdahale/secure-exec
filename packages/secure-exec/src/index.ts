@@ -196,9 +196,6 @@ export class NodeProcess {
 	private bridgeBase64TransferLimitBytes: number;
 	private isolateJsonPayloadLimitBytes: number;
 	private onConsoleLog?: ConsoleLogHook;
-	private filesystemEnabled: boolean = false;
-	private commandExecutorEnabled: boolean = false;
-	private networkEnabled: boolean = false;
 	private activeHttpServerIds: Set<number> = new Set();
 	private disposed: boolean = false;
 	// Cache for compiled ESM modules (per isolate)
@@ -222,9 +219,6 @@ export class NodeProcess {
 			});
 		const permissions = options.permissions ?? driver.permissions;
 		this.permissions = permissions;
-		this.filesystemEnabled = Boolean(driver.filesystem);
-		this.commandExecutorEnabled = Boolean(driver.commandExecutor);
-		this.networkEnabled = Boolean(driver.network);
 		this.filesystem = driver.filesystem
 			? wrapFileSystem(driver.filesystem, permissions)
 			: createFsStub();
@@ -258,7 +252,6 @@ export class NodeProcess {
 	 * Set the command executor for child_process support
 	 */
 	setCommandExecutor(executor: CommandExecutor): void {
-		this.commandExecutorEnabled = true;
 		this.commandExecutor = wrapCommandExecutor(executor, this.permissions);
 	}
 
@@ -266,7 +259,6 @@ export class NodeProcess {
 	 * Set the network adapter for fetch/http/https/dns support
 	 */
 	setNetworkAdapter(adapter: NetworkAdapter): void {
-		this.networkEnabled = true;
 		this.networkAdapter = wrapNetworkAdapter(adapter, this.permissions);
 	}
 
@@ -336,7 +328,6 @@ export class NodeProcess {
 	 * Set the filesystem for file access
 	 */
 	setFilesystem(filesystem: VirtualFileSystem): void {
-		this.filesystemEnabled = true;
 		this.filesystem = wrapFileSystem(filesystem, this.permissions);
 	}
 
@@ -1578,9 +1569,8 @@ export class NodeProcess {
 		});
 
 		return {
-			stdout: result.stdout,
-			stderr: result.stderr,
 			code: result.code,
+			errorMessage: result.errorMessage,
 		};
 	}
 

@@ -97,8 +97,8 @@ describe("NodeProcess", () => {
 	it("drops console output by default without a hook", async () => {
 		proc = new NodeProcess();
 		const result = await proc.exec(`console.log('hello'); console.error('oops');`);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toBe("");
+		expect(result).not.toHaveProperty("stdout");
+		expect(result.errorMessage).toBeUndefined();
 		expect(result.code).toBe(0);
 	});
 
@@ -112,8 +112,8 @@ describe("NodeProcess", () => {
       console.log("fourth");
     `);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toBe("");
+		expect(result).not.toHaveProperty("stdout");
+		expect(result.errorMessage).toBeUndefined();
 		expect(capture.events).toEqual([
 			{ channel: "stdout", message: "first" },
 			{ channel: "stderr", message: "second" },
@@ -132,8 +132,8 @@ describe("NodeProcess", () => {
 		});
 		const result = await proc.exec(`console.log("keep-going");`);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toBe("");
+		expect(result).not.toHaveProperty("stdout");
+		expect(result.errorMessage).toBeUndefined();
 		expect(seen).toEqual([{ channel: "stdout", message: "keep-going" }]);
 	});
 
@@ -146,7 +146,7 @@ describe("NodeProcess", () => {
       console.log(value);
     `);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toContain("[Circular]");
 	});
 
@@ -155,7 +155,7 @@ describe("NodeProcess", () => {
 		proc = new NodeProcess({ onConsoleLog: capture.onConsoleLog });
 		const result = await proc.exec(`console.log(null, undefined);`);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("null undefined\n");
 	});
 
@@ -168,7 +168,7 @@ describe("NodeProcess", () => {
       console.error(value);
     `);
 		expect(result.code).toBe(0);
-		expect(result.stderr).toBe("");
+		expect(result.errorMessage).toBeUndefined();
 		expect(capture.stderr()).toContain("[Circular]");
 	});
 
@@ -208,8 +208,8 @@ describe("NodeProcess", () => {
       console.error("done");
     `);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toBe("");
+		expect(result).not.toHaveProperty("stdout");
+		expect(result.errorMessage).toBeUndefined();
 	});
 
 	it("loads node stdlib polyfills", async () => {
@@ -270,7 +270,9 @@ describe("NodeProcess", () => {
 		proc = new NodeProcess();
 		const result = await proc.exec(`require('chalk')`);
 		expect(result.code).toBe(1);
-		expect(result.stderr).toMatch(/Cannot find module|EACCES: permission denied/);
+		expect(result.errorMessage).toMatch(
+			/Cannot find module|EACCES: permission denied/,
+		);
 	});
 
 	it("loads tty/constants polyfills and v8 stub", async () => {
@@ -311,7 +313,9 @@ describe("NodeProcess", () => {
 		proc = new NodeProcess();
 		const result = await proc.exec(`require('nonexistent-module')`);
 		expect(result.code).toBe(1);
-		expect(result.stderr).toMatch(/Cannot find module|EACCES: permission denied/);
+		expect(result.errorMessage).toMatch(
+			/Cannot find module|EACCES: permission denied/,
+		);
 	});
 
 	it("loads packages from virtual node_modules", async () => {
@@ -477,7 +481,7 @@ describe("NodeProcess", () => {
 			{ filePath: "/entry.mjs" },
 		);
 		expect(esmResult.code).toBe(0);
-		expect(esmResult.stdout).toBe("");
+		expect(esmResult).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toContain("esm-entry:esm-feature");
 	});
 
@@ -502,7 +506,7 @@ describe("NodeProcess", () => {
 		);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("42\n");
 	});
 
@@ -559,7 +563,7 @@ describe("NodeProcess", () => {
 			{ filePath: "/app/entry.mjs" },
 		);
 		expect(importResult.code).toBe(0);
-		expect(importResult.stdout).toBe("");
+		expect(importResult).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("main-entry\n");
 	});
 
@@ -597,7 +601,7 @@ describe("NodeProcess", () => {
 		);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout().trim()).toBe("function true true true");
 	});
 
@@ -630,7 +634,7 @@ describe("NodeProcess", () => {
 		);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("before\nside-effect\nafter\n");
 	});
 
@@ -664,7 +668,7 @@ describe("NodeProcess", () => {
 		);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("done\n");
 		expect(capture.stdout()).not.toContain("loaded");
 	});
@@ -706,7 +710,7 @@ describe("NodeProcess", () => {
 		);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("ok\n");
 	});
 
@@ -730,7 +734,7 @@ describe("NodeProcess", () => {
 		);
 
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain("Cannot load module: /app/missing.mjs");
+		expect(result.errorMessage).toContain("Cannot load module: /app/missing.mjs");
 	});
 
 	it("preserves ESM syntax errors from dynamic import", async () => {
@@ -754,8 +758,8 @@ describe("NodeProcess", () => {
 		);
 
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain("Unexpected");
-		expect(result.stderr).not.toContain("Cannot dynamically import");
+		expect(result.errorMessage).toContain("Unexpected");
+		expect(result.errorMessage).not.toContain("Cannot dynamically import");
 	});
 
 	it("preserves ESM evaluation errors from dynamic import", async () => {
@@ -777,8 +781,8 @@ describe("NodeProcess", () => {
 		);
 
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain("dynamic-import-eval-failure");
-		expect(result.stderr).not.toContain("Cannot dynamically import");
+		expect(result.errorMessage).toContain("dynamic-import-eval-failure");
+		expect(result.errorMessage).not.toContain("Cannot dynamically import");
 	});
 
 	it("returns safe dynamic-import namespaces for primitive and null CommonJS exports", async () => {
@@ -805,7 +809,7 @@ describe("NodeProcess", () => {
 		);
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("7|null\n");
 	});
 
@@ -861,14 +865,14 @@ describe("NodeProcess", () => {
 		proc = new NodeProcess({ cpuTimeLimitMs: 100 });
 		const result = await proc.exec("while (true) {}");
 		expect(result.code).toBe(124);
-		expect(result.stderr).toContain("CPU time limit exceeded");
+		expect(result.errorMessage).toContain("CPU time limit exceeded");
 	});
 
 	it("times out non-terminating ESM execution with cpuTimeLimitMs", async () => {
 		proc = new NodeProcess({ cpuTimeLimitMs: 100 });
 		const result = await proc.exec("while (true) {}", { filePath: "/entry.mjs" });
 		expect(result.code).toBe(124);
-		expect(result.stderr).toContain("CPU time limit exceeded");
+		expect(result.errorMessage).toContain("CPU time limit exceeded");
 	});
 
 	it("times out non-terminating dynamic import evaluation", async () => {
@@ -890,7 +894,7 @@ describe("NodeProcess", () => {
 			{ filePath: "/app/entry.js" },
 		);
 		expect(result.code).toBe(124);
-		expect(result.stderr).toContain("CPU time limit exceeded");
+		expect(result.errorMessage).toContain("CPU time limit exceeded");
 	});
 
 	it("hardens all custom globals as non-writable and non-configurable", async () => {
@@ -1000,7 +1004,7 @@ describe("NodeProcess", () => {
 	      module.exports = 42;
 	    `);
 		expect(result.code).toBe(124);
-		expect(result.stderr).toContain("CPU time limit exceeded");
+		expect(result.errorMessage).toContain("CPU time limit exceeded");
 	});
 
 	it("keeps isolate usable after cpuTimeLimitMs timeout", async () => {

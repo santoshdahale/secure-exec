@@ -122,7 +122,7 @@ describe("moduleAccess overlay", () => {
 			{ cwd: "/app", filePath: "/app/index.js" },
 		);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("42\n");
 	});
 
@@ -165,7 +165,7 @@ describe("moduleAccess overlay", () => {
 			{ cwd: "/app", filePath: "/app/index.js" },
 		);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("42\n");
 	});
 
@@ -201,7 +201,7 @@ describe("moduleAccess overlay", () => {
 			{ cwd: "/app", filePath: "/app/index.js" },
 		);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toBe("42:host-file\n");
 	});
 
@@ -236,7 +236,7 @@ describe("moduleAccess overlay", () => {
 			{ cwd: "/app", filePath: "/app/index.js" },
 		);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toContain("EACCES: permission denied");
 	});
 
@@ -282,7 +282,7 @@ describe("moduleAccess overlay", () => {
 			filePath: "/app/index.js",
 		});
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain("ERR_MODULE_ACCESS_OUT_OF_SCOPE");
+		expect(result.errorMessage).toContain("ERR_MODULE_ACCESS_OUT_OF_SCOPE");
 	});
 
 	it("rejects native addon artifacts in overlay", async () => {
@@ -309,7 +309,7 @@ describe("moduleAccess overlay", () => {
 			filePath: "/app/index.js",
 		});
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain("ERR_MODULE_ACCESS_NATIVE_ADDON");
+		expect(result.errorMessage).toContain("ERR_MODULE_ACCESS_NATIVE_ADDON");
 	});
 
 	it("keeps non-overlay host paths denied when overlay reads are allowed", async () => {
@@ -353,7 +353,7 @@ describe("moduleAccess overlay", () => {
 			{ cwd: "/app", filePath: "/app/index.js" },
 		);
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe("");
+		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toContain("42\n");
 		expect(capture.stdout()).toContain("EACCES: permission denied");
 	});
