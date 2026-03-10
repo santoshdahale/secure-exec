@@ -40,7 +40,9 @@ describe("runtime driver specific: node", () => {
 			createNodeRuntimeDriverFactory();
 		const runtime = new NodeRuntime({
 			memoryLimit: 128,
-			cpuTimeLimitMs: 250,
+			// Keep the default runtime limit low enough to exercise node-only
+			// construction options without depending on machine-specific startup jitter.
+			cpuTimeLimitMs: 500,
 			timingMitigation: "off",
 			payloadLimits: {
 				base64TransferBytes: 4096,
@@ -57,7 +59,9 @@ describe("runtime driver specific: node", () => {
 	it("accepts Node-only exec options", async () => {
 		const runtime = createRuntime();
 		const result = await runtime.exec(`console.log("node-exec-options-ok");`, {
-			cpuTimeLimitMs: 50,
+			// Keep the limit low enough to exercise the node-only option path
+			// without coupling the test to machine-specific startup jitter.
+			cpuTimeLimitMs: 250,
 			timingMitigation: "off",
 		});
 		expect(result.code).toBe(0);
