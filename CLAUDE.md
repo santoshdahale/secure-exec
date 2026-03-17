@@ -10,6 +10,15 @@
 - check GitHub Actions test/typecheck status per commit to identify when a failure first appeared
 - do not use `contract` in test filenames; use names like `suite`, `behavior`, `parity`, `integration`, or `policy` instead
 
+## WASM Binary
+
+- the WasmVM runtime requires a WASM binary at `wasmvm/target/wasm32-wasip1/release/multicall.wasm`
+- build it locally: `cd wasmvm && make wasm` (requires Rust nightly + wasm32-wasip1 target + rust-src component + wasm-opt/binaryen)
+- the Rust toolchain is pinned in `wasmvm/rust-toolchain.toml` — rustup will auto-install it
+- CI builds the binary before tests; a CI-only guard test in `packages/runtime/wasmvm/test/driver.test.ts` fails if it's missing
+- tests gated behind `skipIf(!hasWasmBinary)` or `skipUnlessWasmBuilt()` will skip locally if the binary isn't built
+- see `wasmvm/CLAUDE.md` for full build details and architecture
+
 ## Terminology
 
 - use `docs-internal/glossary.md` for canonical definitions of isolate, runtime, bridge, and driver

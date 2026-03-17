@@ -214,3 +214,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - The fix is minimal: zombieTimers Map<number, ReturnType<typeof setTimeout>>, set in markExited, clearTimeout + clear() in terminateAll
   - Timer callback also deletes from the map to avoid retaining references to already-fired timers
 ---
+
+## 2026-03-17 - US-014
+- What was implemented: CI WASM build pipeline and CI-only guard test ensuring WASM binary availability
+- Files changed:
+  - .github/workflows/ci.yml — added Rust nightly toolchain setup, wasm-opt/binaryen install, build artifact caching, `make wasm` step before Node.js tests
+  - packages/runtime/wasmvm/test/driver.test.ts — added CI-only guard test that fails if hasWasmBinary is false when CI=true
+  - CLAUDE.md — added "WASM Binary" section documenting build instructions and CI behavior
+  - prd.json — marked US-014 as passes: true
+- **Learnings for future iterations:**
+  - CI needs Rust nightly (pinned in wasmvm/rust-toolchain.toml), wasm32-wasip1 target, rust-src component, and wasm-opt (binaryen)
+  - Install binaryen via apt (fast) rather than `cargo install wasm-opt` (slow compilation)
+  - Cache key should include Cargo.lock and rust-toolchain.toml to invalidate on dependency or toolchain changes
+  - Guard test uses `if (process.env.CI)` to only run in CI — locally, WASM-gated tests continue to skip gracefully
+  - The guard test validates the build step worked; the skipIf tests remain unchanged so local dev without WASM still works
+---

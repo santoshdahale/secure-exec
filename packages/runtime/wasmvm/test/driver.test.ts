@@ -111,6 +111,13 @@ class SimpleVFS {
 // -------------------------------------------------------------------------
 
 describe('WasmVM RuntimeDriver', () => {
+  // Guard: WASM binary must be available in CI — prevents silent test skips
+  if (process.env.CI) {
+    it('WASM binary is available in CI', () => {
+      expect(hasWasmBinary, `WASM binary not found at ${WASM_BINARY_PATH} — CI must build it before tests`).toBe(true);
+    });
+  }
+
   describe('factory', () => {
     it('createWasmVmRuntime returns a RuntimeDriver', () => {
       const driver = createWasmVmRuntime();
