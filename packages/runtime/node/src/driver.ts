@@ -206,6 +206,26 @@ function createKernelVfsAdapter(kernelVfs: KernelInterface['vfs']): VirtualFileS
     removeFile: (path) => kernelVfs.removeFile(path),
     removeDir: (path) => kernelVfs.removeDir(path),
     rename: (oldPath, newPath) => kernelVfs.rename(oldPath, newPath),
+    symlink: (target, linkPath) => kernelVfs.symlink(target, linkPath),
+    readlink: (path) => kernelVfs.readlink(path),
+    lstat: async (path) => {
+      const s = await kernelVfs.lstat(path);
+      return {
+        mode: s.mode,
+        size: s.size,
+        isDirectory: s.isDirectory,
+        isSymbolicLink: s.isSymbolicLink,
+        atimeMs: s.atimeMs,
+        mtimeMs: s.mtimeMs,
+        ctimeMs: s.ctimeMs,
+        birthtimeMs: s.birthtimeMs,
+      };
+    },
+    link: (oldPath, newPath) => kernelVfs.link(oldPath, newPath),
+    chmod: (path, mode) => kernelVfs.chmod(path, mode),
+    chown: (path, uid, gid) => kernelVfs.chown(path, uid, gid),
+    utimes: (path, atime, mtime) => kernelVfs.utimes(path, atime, mtime),
+    truncate: (path, length) => kernelVfs.truncate(path, length),
   };
 }
 
@@ -268,6 +288,14 @@ function createHostFallbackVfs(base: VirtualFileSystem): VirtualFileSystem {
     removeFile: (path) => base.removeFile(path),
     removeDir: (path) => base.removeDir(path),
     rename: (oldPath, newPath) => base.rename(oldPath, newPath),
+    symlink: (target, linkPath) => base.symlink(target, linkPath),
+    readlink: (path) => base.readlink(path),
+    lstat: (path) => base.lstat(path),
+    link: (oldPath, newPath) => base.link(oldPath, newPath),
+    chmod: (path, mode) => base.chmod(path, mode),
+    chown: (path, uid, gid) => base.chown(path, uid, gid),
+    utimes: (path, atime, mtime) => base.utimes(path, atime, mtime),
+    truncate: (path, length) => base.truncate(path, length),
   };
 }
 

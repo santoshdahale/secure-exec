@@ -1,7 +1,8 @@
-import type { VirtualFileSystem } from "../types.js";
+import type { VirtualFileSystem, VirtualStat } from "../types.js";
 
 const S_IFREG = 0o100000;
 const S_IFDIR = 0o040000;
+const S_IFLNK = 0o120000;
 
 function normalizePath(path: string): string {
 	if (!path) return "/";
@@ -32,6 +33,11 @@ function dirname(path: string): string {
 export class InMemoryFileSystem implements VirtualFileSystem {
 	private files = new Map<string, Uint8Array>();
 	private dirs = new Set<string>(["/"]);
+	private symlinks = new Map<string, string>();
+	private modes = new Map<string, number>();
+	private owners = new Map<string, { uid: number; gid: number }>();
+	private timestamps = new Map<string, { atimeMs: number; mtimeMs: number }>();
+	private hardLinks = new Map<string, string>(); // newPath → originalPath
 
 	private listDirEntries(
 		path: string,
@@ -118,46 +124,69 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		}
 	}
 
-	async exists(path: string): Promise<boolean> {
-		const normalized = normalizePath(path);
-		return this.files.has(normalized) || this.dirs.has(normalized);
+	private resolveSymlink(normalized: string, maxDepth = 16): string {
+		let current = normalized;
+		for (let i = 0; i < maxDepth; i++) {
+			const target = this.symlinks.get(current);
+			if (!target) return current;
+			current = target.startsWith("/") ? normalizePath(target) : normalizePath(`${dirname(current)}/${target}`);
+		}
+		throw new Error(`ELOOP: too many levels of symbolic links, stat '${normalized}'`);
 	}
 
-	async stat(path: string): Promise<{
-		mode: number;
-		size: number;
-		isDirectory: boolean;
-		atimeMs: number;
-		mtimeMs: number;
-		ctimeMs: number;
-		birthtimeMs: number;
-	}> {
-		const normalized = normalizePath(path);
+	private statEntry(normalized: string): VirtualStat {
 		const now = Date.now();
+		const ts = this.timestamps.get(normalized);
+		const owner = this.owners.get(normalized);
+		const customMode = this.modes.get(normalized);
+		const atimeMs = ts?.atimeMs ?? now;
+		const mtimeMs = ts?.mtimeMs ?? now;
+
 		const file = this.files.get(normalized);
 		if (file) {
 			return {
-				mode: S_IFREG | 0o644,
+				mode: customMode ?? (S_IFREG | 0o644),
 				size: file.byteLength,
 				isDirectory: false,
-				atimeMs: now,
-				mtimeMs: now,
+				isSymbolicLink: false,
+				atimeMs,
+				mtimeMs,
 				ctimeMs: now,
 				birthtimeMs: now,
 			};
 		}
 		if (this.dirs.has(normalized)) {
 			return {
-				mode: S_IFDIR | 0o755,
+				mode: customMode ?? (S_IFDIR | 0o755),
 				size: 4096,
 				isDirectory: true,
-				atimeMs: now,
-				mtimeMs: now,
+				isSymbolicLink: false,
+				atimeMs,
+				mtimeMs,
 				ctimeMs: now,
 				birthtimeMs: now,
 			};
 		}
 		throw new Error(`ENOENT: no such file or directory, stat '${normalized}'`);
+	}
+
+	async exists(path: string): Promise<boolean> {
+		const normalized = normalizePath(path);
+		if (this.symlinks.has(normalized)) {
+			try {
+				this.resolveSymlink(normalized);
+				return true;
+			} catch {
+				return false;
+			}
+		}
+		return this.files.has(normalized) || this.dirs.has(normalized);
+	}
+
+	async stat(path: string): Promise<VirtualStat> {
+		const normalized = normalizePath(path);
+		const resolved = this.resolveSymlink(normalized);
+		return this.statEntry(resolved);
 	}
 
 	async removeFile(path: string): Promise<void> {
@@ -257,6 +286,103 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 				continue;
 			}
 			this.dirs.add(`${targetPrefix}${path.slice(sourcePrefix.length)}`);
+		}
+	}
+
+	async symlink(target: string, linkPath: string): Promise<void> {
+		const normalized = normalizePath(linkPath);
+		if (this.files.has(normalized) || this.dirs.has(normalized) || this.symlinks.has(normalized)) {
+			throw new Error(`EEXIST: file already exists, symlink '${target}' -> '${normalized}'`);
+		}
+		await this.mkdir(dirname(normalized));
+		this.symlinks.set(normalized, target);
+	}
+
+	async readlink(path: string): Promise<string> {
+		const normalized = normalizePath(path);
+		const target = this.symlinks.get(normalized);
+		if (target === undefined) {
+			throw new Error(`EINVAL: invalid argument, readlink '${normalized}'`);
+		}
+		return target;
+	}
+
+	async lstat(path: string): Promise<VirtualStat> {
+		const normalized = normalizePath(path);
+		const target = this.symlinks.get(normalized);
+		if (target !== undefined) {
+			const now = Date.now();
+			return {
+				mode: S_IFLNK | 0o777,
+				size: new TextEncoder().encode(target).byteLength,
+				isDirectory: false,
+				isSymbolicLink: true,
+				atimeMs: now,
+				mtimeMs: now,
+				ctimeMs: now,
+				birthtimeMs: now,
+			};
+		}
+		return this.statEntry(normalized);
+	}
+
+	async link(oldPath: string, newPath: string): Promise<void> {
+		const oldNormalized = normalizePath(oldPath);
+		const newNormalized = normalizePath(newPath);
+		const file = this.files.get(oldNormalized);
+		if (!file) {
+			throw new Error(`ENOENT: no such file or directory, link '${oldNormalized}' -> '${newNormalized}'`);
+		}
+		if (this.files.has(newNormalized) || this.dirs.has(newNormalized)) {
+			throw new Error(`EEXIST: file already exists, link '${oldNormalized}' -> '${newNormalized}'`);
+		}
+		await this.mkdir(dirname(newNormalized));
+		this.files.set(newNormalized, file);
+		this.hardLinks.set(newNormalized, oldNormalized);
+	}
+
+	async chmod(path: string, mode: number): Promise<void> {
+		const normalized = normalizePath(path);
+		const resolved = this.resolveSymlink(normalized);
+		if (!this.files.has(resolved) && !this.dirs.has(resolved)) {
+			throw new Error(`ENOENT: no such file or directory, chmod '${normalized}'`);
+		}
+		const existing = this.modes.get(resolved);
+		const typeBits = existing ? (existing & 0o170000) : (this.files.has(resolved) ? S_IFREG : S_IFDIR);
+		this.modes.set(resolved, typeBits | (mode & 0o7777));
+	}
+
+	async chown(path: string, uid: number, gid: number): Promise<void> {
+		const normalized = normalizePath(path);
+		const resolved = this.resolveSymlink(normalized);
+		if (!this.files.has(resolved) && !this.dirs.has(resolved)) {
+			throw new Error(`ENOENT: no such file or directory, chown '${normalized}'`);
+		}
+		this.owners.set(resolved, { uid, gid });
+	}
+
+	async utimes(path: string, atime: number, mtime: number): Promise<void> {
+		const normalized = normalizePath(path);
+		const resolved = this.resolveSymlink(normalized);
+		if (!this.files.has(resolved) && !this.dirs.has(resolved)) {
+			throw new Error(`ENOENT: no such file or directory, utimes '${normalized}'`);
+		}
+		this.timestamps.set(resolved, { atimeMs: atime * 1000, mtimeMs: mtime * 1000 });
+	}
+
+	async truncate(path: string, length: number): Promise<void> {
+		const normalized = normalizePath(path);
+		const resolved = this.resolveSymlink(normalized);
+		const file = this.files.get(resolved);
+		if (!file) {
+			throw new Error(`ENOENT: no such file or directory, truncate '${normalized}'`);
+		}
+		if (length >= file.byteLength) {
+			const padded = new Uint8Array(length);
+			padded.set(file);
+			this.files.set(resolved, padded);
+		} else {
+			this.files.set(resolved, file.slice(0, length));
 		}
 	}
 }

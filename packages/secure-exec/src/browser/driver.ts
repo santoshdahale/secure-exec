@@ -235,6 +235,50 @@ export class OpfsFileSystem implements VirtualFileSystem {
 	async rename(_oldPath: string, _newPath: string): Promise<void> {
 		throw createEnosysError("rename");
 	}
+
+	async symlink(_target: string, _linkPath: string): Promise<void> {
+		throw createEnosysError("symlink");
+	}
+
+	async readlink(_path: string): Promise<string> {
+		throw createEnosysError("readlink");
+	}
+
+	async lstat(path: string): Promise<{
+		mode: number;
+		size: number;
+		isDirectory: boolean;
+		isSymbolicLink?: boolean;
+		atimeMs: number;
+		mtimeMs: number;
+		ctimeMs: number;
+		birthtimeMs: number;
+	}> {
+		return this.stat(path);
+	}
+
+	async link(_oldPath: string, _newPath: string): Promise<void> {
+		throw createEnosysError("link");
+	}
+
+	async chmod(_path: string, _mode: number): Promise<void> {
+		// No-op: OPFS does not support POSIX permissions
+	}
+
+	async chown(_path: string, _uid: number, _gid: number): Promise<void> {
+		// No-op: OPFS does not support POSIX ownership
+	}
+
+	async utimes(_path: string, _atime: number, _mtime: number): Promise<void> {
+		// No-op: OPFS does not support timestamp manipulation
+	}
+
+	async truncate(path: string, length: number): Promise<void> {
+		const handle = await this.getFileHandle(path);
+		const writable = await handle.createWritable({ keepExistingData: true });
+		await writable.truncate(length);
+		await writable.close();
+	}
 }
 
 export interface BrowserDriverOptions {

@@ -1917,4 +1917,248 @@ describe("NodeRuntime", () => {
 		`);
 		expect(result.exports).toEqual(["/data/a.ts"]);
 	});
+
+	// --- Deferred fs APIs: chmod, chown, link, symlink, readlink, truncate, utimes ---
+
+	it("fs.chmodSync succeeds on existing file", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "hello");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.chmodSync('/data/f.txt', 0o755);
+			module.exports = true;
+		`);
+		expect(result.exports).toBe(true);
+	});
+
+	it("fs.symlinkSync creates symlink and readlinkSync returns target", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/original.txt", "content");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.symlinkSync('/data/original.txt', '/data/link.txt');
+			const target = fs.readlinkSync('/data/link.txt');
+			const stat = fs.lstatSync('/data/link.txt');
+			module.exports = { target, isSymLink: stat.isSymbolicLink() };
+		`);
+		expect(result.exports).toEqual({
+			target: "/data/original.txt",
+			isSymLink: true,
+		});
+	});
+
+	it("fs.linkSync creates hard link", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/src.txt", "hello");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.linkSync('/data/src.txt', '/data/dest.txt');
+			module.exports = fs.readFileSync('/data/dest.txt', 'utf8');
+		`);
+		expect(result.exports).toBe("hello");
+	});
+
+	it("fs.truncateSync truncates file", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/big.txt", "hello world");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.truncateSync('/data/big.txt', 5);
+			module.exports = fs.readFileSync('/data/big.txt', 'utf8');
+		`);
+		expect(result.exports).toBe("hello");
+	});
+
+	it("fs.utimesSync updates timestamps", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "x");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.utimesSync('/data/f.txt', 1000, 2000);
+			module.exports = true;
+		`);
+		expect(result.exports).toBe(true);
+	});
+
+	it("fs.chownSync succeeds on existing file", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "x");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			fs.chownSync('/data/f.txt', 1000, 1000);
+			module.exports = true;
+		`);
+		expect(result.exports).toBe(true);
+	});
+
+	it("fs.watch still throws with clear message", async () => {
+		proc = createTestNodeRuntime({
+			filesystem: createFs(),
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			try {
+				fs.watch('/data');
+				module.exports = 'no error';
+			} catch (e) {
+				module.exports = e.message;
+			}
+		`);
+		expect(result.exports).toContain("not supported");
+		expect(result.exports).toContain("polling");
+	});
+
+	it("fs.promises.chmod works", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "x");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			(async () => {
+				await fs.promises.chmod('/data/f.txt', 0o700);
+				module.exports = true;
+			})();
+		`);
+		expect(result.exports).toBe(true);
+	});
+
+	it("fs.promises.symlink and readlink work", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/file.txt", "content");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			(async () => {
+				await fs.promises.symlink('/data/file.txt', '/data/sl.txt');
+				module.exports = await fs.promises.readlink('/data/sl.txt');
+			})();
+		`);
+		expect(result.exports).toBe("/data/file.txt");
+	});
+
+	it("fs.promises.truncate works", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/big.txt", "abcdefghij");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			(async () => {
+				await fs.promises.truncate('/data/big.txt', 3);
+				module.exports = fs.readFileSync('/data/big.txt', 'utf8');
+			})();
+		`);
+		expect(result.exports).toBe("abc");
+	});
+
+	it("callback forms work for chmod, link, symlink, readlink, truncate, utimes, chown", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "hello world");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: allowAllFs,
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			const results = [];
+			fs.chmod('/data/f.txt', 0o700, (err) => { results.push(err === null ? 'chmod ok' : err.message); });
+			fs.chown('/data/f.txt', 1, 1, (err) => { results.push(err === null ? 'chown ok' : err.message); });
+			fs.link('/data/f.txt', '/data/link.txt', (err) => { results.push(err === null ? 'link ok' : err.message); });
+			fs.symlink('/data/f.txt', '/data/sym.txt', (err) => { results.push(err === null ? 'symlink ok' : err.message); });
+			fs.readlink('/data/sym.txt', (err, target) => { results.push(err === null ? 'readlink=' + target : err.message); });
+			fs.truncate('/data/f.txt', 5, (err) => { results.push(err === null ? 'truncate ok' : err.message); });
+			fs.utimes('/data/f.txt', 1, 2, (err) => { results.push(err === null ? 'utimes ok' : err.message); });
+			module.exports = results;
+		`);
+		expect(result.exports).toEqual([
+			"chmod ok",
+			"chown ok",
+			"link ok",
+			"symlink ok",
+			"readlink=/data/f.txt",
+			"truncate ok",
+			"utimes ok",
+		]);
+	});
+
+	it("deferred fs APIs respect permission deny", async () => {
+		const vfs = createFs();
+		await vfs.mkdir("/data");
+		await vfs.writeFile("/data/f.txt", "x");
+
+		proc = createTestNodeRuntime({
+			filesystem: vfs,
+			permissions: {
+				fs: (req) => ({ allow: req.path.startsWith("/tmp") }),
+			},
+		});
+		const result = await proc.run(`
+			const fs = require('fs');
+			const errors = [];
+			try { fs.chmodSync('/data/f.txt', 0o755); } catch (e) { errors.push(e.code); }
+			try { fs.symlinkSync('/data/f.txt', '/data/link'); } catch (e) { errors.push(e.code); }
+			try { fs.readlinkSync('/data/f.txt'); } catch (e) { errors.push(e.code); }
+			try { fs.linkSync('/data/f.txt', '/data/lnk'); } catch (e) { errors.push(e.code); }
+			try { fs.truncateSync('/data/f.txt', 0); } catch (e) { errors.push(e.code); }
+			try { fs.utimesSync('/data/f.txt', 1, 2); } catch (e) { errors.push(e.code); }
+			try { fs.chownSync('/data/f.txt', 1, 1); } catch (e) { errors.push(e.code); }
+			module.exports = errors;
+		`);
+		expect(result.exports).toEqual([
+			"EACCES", "EACCES", "EACCES", "EACCES", "EACCES", "EACCES", "EACCES",
+		]);
+	});
 });

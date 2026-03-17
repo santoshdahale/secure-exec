@@ -1138,6 +1138,60 @@ export class NodeExecutionDriver implements RuntimeDriver {
 					await fs.rename(oldPath, newPath);
 				},
 			);
+			const chmodRef = new ivm.Reference(
+				async (path: string, mode: number) => {
+					this.checkBridgeBudget();
+					await fs.chmod(path, mode);
+				},
+			);
+			const chownRef = new ivm.Reference(
+				async (path: string, uid: number, gid: number) => {
+					this.checkBridgeBudget();
+					await fs.chown(path, uid, gid);
+				},
+			);
+			const linkRef = new ivm.Reference(
+				async (oldPath: string, newPath: string) => {
+					this.checkBridgeBudget();
+					await fs.link(oldPath, newPath);
+				},
+			);
+			const symlinkRef = new ivm.Reference(
+				async (target: string, linkPath: string) => {
+					this.checkBridgeBudget();
+					await fs.symlink(target, linkPath);
+				},
+			);
+			const readlinkRef = new ivm.Reference(async (path: string) => {
+				this.checkBridgeBudget();
+				return fs.readlink(path);
+			});
+			const lstatRef = new ivm.Reference(async (path: string) => {
+				this.checkBridgeBudget();
+				const statInfo = await fs.lstat(path);
+				return JSON.stringify({
+					mode: statInfo.mode,
+					size: statInfo.size,
+					isDirectory: statInfo.isDirectory,
+					isSymbolicLink: statInfo.isSymbolicLink,
+					atimeMs: statInfo.atimeMs,
+					mtimeMs: statInfo.mtimeMs,
+					ctimeMs: statInfo.ctimeMs,
+					birthtimeMs: statInfo.birthtimeMs,
+				});
+			});
+			const truncateRef = new ivm.Reference(
+				async (path: string, length: number) => {
+					this.checkBridgeBudget();
+					await fs.truncate(path, length);
+				},
+			);
+			const utimesRef = new ivm.Reference(
+				async (path: string, atime: number, mtime: number) => {
+					this.checkBridgeBudget();
+					await fs.utimes(path, atime, mtime);
+				},
+			);
 
 			// Set up each fs Reference individually in the isolate
 			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsReadFile, readFileRef);
@@ -1151,6 +1205,14 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsStat, statRef);
 			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsUnlink, unlinkRef);
 			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsRename, renameRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsChmod, chmodRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsChown, chownRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsLink, linkRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsSymlink, symlinkRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsReadlink, readlinkRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsLstat, lstatRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsTruncate, truncateRef);
+			await jail.set(HOST_BRIDGE_GLOBAL_KEYS.fsUtimes, utimesRef);
 
 			// Create the _fs object inside the isolate.
 			await context.eval(getIsolateRuntimeSource("setupFsFacade"));

@@ -117,6 +117,57 @@ export class NodeFileSystem implements VirtualFileSystem {
 	async rename(oldPath: string, newPath: string): Promise<void> {
 		await fs.rename(oldPath, newPath);
 	}
+
+	async symlink(target: string, linkPath: string): Promise<void> {
+		await fs.symlink(target, linkPath);
+	}
+
+	async readlink(path: string): Promise<string> {
+		return fs.readlink(path);
+	}
+
+	async lstat(path: string): Promise<{
+		mode: number;
+		size: number;
+		isDirectory: boolean;
+		isSymbolicLink?: boolean;
+		atimeMs: number;
+		mtimeMs: number;
+		ctimeMs: number;
+		birthtimeMs: number;
+	}> {
+		const info = await fs.lstat(path);
+		return {
+			mode: info.mode,
+			size: info.size,
+			isDirectory: info.isDirectory(),
+			isSymbolicLink: info.isSymbolicLink(),
+			atimeMs: info.atimeMs,
+			mtimeMs: info.mtimeMs,
+			ctimeMs: info.ctimeMs,
+			birthtimeMs: info.birthtimeMs,
+		};
+	}
+
+	async link(oldPath: string, newPath: string): Promise<void> {
+		await fs.link(oldPath, newPath);
+	}
+
+	async chmod(path: string, mode: number): Promise<void> {
+		await fs.chmod(path, mode);
+	}
+
+	async chown(path: string, uid: number, gid: number): Promise<void> {
+		await fs.chown(path, uid, gid);
+	}
+
+	async utimes(path: string, atime: number, mtime: number): Promise<void> {
+		await fs.utimes(path, atime, mtime);
+	}
+
+	async truncate(path: string, length: number): Promise<void> {
+		await fs.truncate(path, length);
+	}
 }
 
 /** Restrict HTTP server hostname to loopback interfaces; throws on non-local addresses. */

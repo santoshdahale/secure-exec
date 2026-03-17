@@ -75,6 +75,20 @@ function fsOpToSyscall(op: FsAccessRequest["op"]): string {
 			return "rename";
 		case "exists":
 			return "access";
+		case "chmod":
+			return "chmod";
+		case "chown":
+			return "chown";
+		case "link":
+			return "link";
+		case "symlink":
+			return "symlink";
+		case "readlink":
+			return "readlink";
+		case "truncate":
+			return "open";
+		case "utimes":
+			return "utimes";
 		default:
 			return "open";
 	}
@@ -190,6 +204,70 @@ export function wrapFileSystem(
 			);
 			return fs.rename(oldPath, newPath);
 		},
+		symlink: async (target, linkPath) => {
+			checkPermission(
+				permissions?.fs,
+				{ op: "symlink", path: linkPath },
+				(req) => createEaccesError(fsOpToSyscall(req.op), req.path),
+			);
+			return fs.symlink(target, linkPath);
+		},
+		readlink: async (path) => {
+			checkPermission(
+				permissions?.fs,
+				{ op: "readlink", path },
+				(req) => createEaccesError(fsOpToSyscall(req.op), req.path),
+			);
+			return fs.readlink(path);
+		},
+		lstat: async (path) => {
+			checkPermission(
+				permissions?.fs,
+				{ op: "stat", path },
+				(req) => createEaccesError(fsOpToSyscall(req.op), req.path),
+			);
+			return fs.lstat(path);
+		},
+		link: async (oldPath, newPath) => {
+			checkPermission(
+				permissions?.fs,
+				{ op: "link", path: newPath },
+				(req) => createEaccesError(fsOpToSyscall(req.op), req.path),
+			);
+			return fs.link(oldPath, newPath);
+		},
+		chmod: async (path, mode) => {
+			checkPermission(
+				permissions?.fs,
+				{ op: "chmod", path },
+				(req) => createEaccesError(fsOpToSyscall(req.op), req.path),
+			);
+			return fs.chmod(path, mode);
+		},
+		chown: async (path, uid, gid) => {
+			checkPermission(
+				permissions?.fs,
+				{ op: "chown", path },
+				(req) => createEaccesError(fsOpToSyscall(req.op), req.path),
+			);
+			return fs.chown(path, uid, gid);
+		},
+		utimes: async (path, atime, mtime) => {
+			checkPermission(
+				permissions?.fs,
+				{ op: "utimes", path },
+				(req) => createEaccesError(fsOpToSyscall(req.op), req.path),
+			);
+			return fs.utimes(path, atime, mtime);
+		},
+		truncate: async (path, length) => {
+			checkPermission(
+				permissions?.fs,
+				{ op: "truncate", path },
+				(req) => createEaccesError(fsOpToSyscall(req.op), req.path),
+			);
+			return fs.truncate(path, length);
+		},
 	};
 }
 
@@ -296,6 +374,14 @@ export function createFsStub(): VirtualFileSystem {
 		removeFile: async (path) => stub("unlink", path),
 		removeDir: async (path) => stub("rmdir", path),
 		rename: async (oldPath, newPath) => stub("rename", `${oldPath}->${newPath}`),
+		symlink: async (_target, linkPath) => stub("symlink", linkPath),
+		readlink: async (path) => stub("readlink", path),
+		lstat: async (path) => stub("stat", path),
+		link: async (_oldPath, newPath) => stub("link", newPath),
+		chmod: async (path) => stub("chmod", path),
+		chown: async (path) => stub("chown", path),
+		utimes: async (path) => stub("utimes", path),
+		truncate: async (path) => stub("open", path),
 	};
 }
 

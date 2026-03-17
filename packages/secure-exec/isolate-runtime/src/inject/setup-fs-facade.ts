@@ -14,6 +14,14 @@ const __fsFacade: Record<string, unknown> = {
 	stat: globalThis._fsStat,
 	unlink: globalThis._fsUnlink,
 	rename: globalThis._fsRename,
+	chmod: globalThis._fsChmod,
+	chown: globalThis._fsChown,
+	link: globalThis._fsLink,
+	symlink: globalThis._fsSymlink,
+	readlink: globalThis._fsReadlink,
+	lstat: globalThis._fsLstat,
+	truncate: globalThis._fsTruncate,
+	utimes: globalThis._fsUtimes,
 };
 
 __runtimeExposeCustomGlobal("_fs", __fsFacade);

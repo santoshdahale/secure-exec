@@ -199,6 +199,46 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host filesystem bridge reference.",
 	},
 	{
+		name: "_fsChmod",
+		classification: "hardened",
+		rationale: "Host filesystem bridge reference.",
+	},
+	{
+		name: "_fsChown",
+		classification: "hardened",
+		rationale: "Host filesystem bridge reference.",
+	},
+	{
+		name: "_fsLink",
+		classification: "hardened",
+		rationale: "Host filesystem bridge reference.",
+	},
+	{
+		name: "_fsSymlink",
+		classification: "hardened",
+		rationale: "Host filesystem bridge reference.",
+	},
+	{
+		name: "_fsReadlink",
+		classification: "hardened",
+		rationale: "Host filesystem bridge reference.",
+	},
+	{
+		name: "_fsLstat",
+		classification: "hardened",
+		rationale: "Host filesystem bridge reference.",
+	},
+	{
+		name: "_fsTruncate",
+		classification: "hardened",
+		rationale: "Host filesystem bridge reference.",
+	},
+	{
+		name: "_fsUtimes",
+		classification: "hardened",
+		rationale: "Host filesystem bridge reference.",
+	},
+	{
 		name: "_fs",
 		classification: "hardened",
 		rationale: "Bridge filesystem facade consumed by fs polyfill.",

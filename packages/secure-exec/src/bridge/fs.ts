@@ -782,6 +782,28 @@ function createFsError(
   return err;
 }
 
+/** Wrap a bridge call with ENOENT/EACCES error re-creation. */
+function bridgeCall<T>(fn: () => T, syscall: string, path?: string): T {
+  try {
+    return fn();
+  } catch (err) {
+    const msg = (err as Error).message || String(err);
+    if (msg.includes("ENOENT") || msg.includes("no such file or directory") || msg.includes("not found")) {
+      throw createFsError("ENOENT", `ENOENT: no such file or directory, ${syscall} '${path}'`, syscall, path);
+    }
+    if (msg.includes("EACCES") || msg.includes("permission denied")) {
+      throw createFsError("EACCES", `EACCES: permission denied, ${syscall} '${path}'`, syscall, path);
+    }
+    if (msg.includes("EEXIST") || msg.includes("file already exists")) {
+      throw createFsError("EEXIST", `EEXIST: file already exists, ${syscall} '${path}'`, syscall, path);
+    }
+    if (msg.includes("EINVAL") || msg.includes("invalid argument")) {
+      throw createFsError("EINVAL", `EINVAL: invalid argument, ${syscall} '${path}'`, syscall, path);
+    }
+    throw err;
+  }
+}
+
 // Glob pattern matching helper — converts glob to regex and walks VFS recursively
 function _globToRegex(pattern: string): RegExp {
   // Determine base directory vs glob portion
@@ -1180,8 +1202,19 @@ const fs = {
   },
 
   lstatSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
-    // In our virtual fs, lstat is the same as stat (no symlinks)
-    return fs.statSync(path);
+    const pathStr = toPathString(path);
+    const statJson = bridgeCall(() => _fs.lstat.applySyncPromise(undefined, [pathStr]), "lstat", pathStr);
+    const stat = JSON.parse(statJson) as {
+      mode: number;
+      size: number;
+      isDirectory: boolean;
+      isSymbolicLink?: boolean;
+      atimeMs?: number;
+      mtimeMs?: number;
+      ctimeMs?: number;
+      birthtimeMs?: number;
+    };
+    return new Stats(stat);
   },
 
   unlinkSync(path: PathLike): void {
@@ -1513,6 +1546,47 @@ const fs = {
       _globCollect(pat, results);
     }
     return [...new Set(results)].sort();
+  },
+
+  // Metadata and link sync methods — delegate to VFS via host refs
+  chmodSync(path: PathLike, mode: Mode): void {
+    const pathStr = toPathString(path);
+    const modeNum = typeof mode === "string" ? parseInt(mode, 8) : mode;
+    bridgeCall(() => _fs.chmod.applySyncPromise(undefined, [pathStr, modeNum]), "chmod", pathStr);
+  },
+
+  chownSync(path: PathLike, uid: number, gid: number): void {
+    const pathStr = toPathString(path);
+    bridgeCall(() => _fs.chown.applySyncPromise(undefined, [pathStr, uid, gid]), "chown", pathStr);
+  },
+
+  linkSync(existingPath: PathLike, newPath: PathLike): void {
+    const existingStr = toPathString(existingPath);
+    const newStr = toPathString(newPath);
+    bridgeCall(() => _fs.link.applySyncPromise(undefined, [existingStr, newStr]), "link", newStr);
+  },
+
+  symlinkSync(target: PathLike, path: PathLike, _type?: string | null): void {
+    const targetStr = toPathString(target);
+    const pathStr = toPathString(path);
+    bridgeCall(() => _fs.symlink.applySyncPromise(undefined, [targetStr, pathStr]), "symlink", pathStr);
+  },
+
+  readlinkSync(path: PathLike, _options?: nodeFs.EncodingOption): string {
+    const pathStr = toPathString(path);
+    return bridgeCall(() => _fs.readlink.applySyncPromise(undefined, [pathStr]), "readlink", pathStr);
+  },
+
+  truncateSync(path: PathLike, len?: number | null): void {
+    const pathStr = toPathString(path);
+    bridgeCall(() => _fs.truncate.applySyncPromise(undefined, [pathStr, len ?? 0]), "truncate", pathStr);
+  },
+
+  utimesSync(path: PathLike, atime: string | number | Date, mtime: string | number | Date): void {
+    const pathStr = toPathString(path);
+    const atimeNum = typeof atime === "number" ? atime : new Date(atime).getTime() / 1000;
+    const mtimeNum = typeof mtime === "number" ? mtime : new Date(mtime).getTime() / 1000;
+    bridgeCall(() => _fs.utimes.applySyncPromise(undefined, [pathStr, atimeNum, mtimeNum]), "utimes", pathStr);
   },
 
   // Async methods - wrap sync methods in callbacks/promises
@@ -2185,26 +2259,26 @@ const fs = {
     async rm(path: string, options?: { force?: boolean; recursive?: boolean }) {
       return fs.rmSync(path, options);
     },
-    async chmod(): Promise<never> {
-      throw new Error("fs.chmod is not supported in sandbox");
+    async chmod(path: string, mode: Mode): Promise<void> {
+      return fs.chmodSync(path, mode);
     },
-    async chown(): Promise<never> {
-      throw new Error("fs.chown is not supported in sandbox");
+    async chown(path: string, uid: number, gid: number): Promise<void> {
+      return fs.chownSync(path, uid, gid);
     },
-    async link(): Promise<never> {
-      throw new Error("fs.link is not supported in sandbox");
+    async link(existingPath: string, newPath: string): Promise<void> {
+      return fs.linkSync(existingPath, newPath);
     },
-    async symlink(): Promise<never> {
-      throw new Error("fs.symlink is not supported in sandbox");
+    async symlink(target: string, path: string): Promise<void> {
+      return fs.symlinkSync(target, path);
     },
-    async readlink(): Promise<never> {
-      throw new Error("fs.readlink is not supported in sandbox");
+    async readlink(path: string): Promise<string> {
+      return fs.readlinkSync(path);
     },
-    async truncate(): Promise<never> {
-      throw new Error("fs.truncate is not supported in sandbox");
+    async truncate(path: string, len?: number): Promise<void> {
+      return fs.truncateSync(path, len);
     },
-    async utimes(): Promise<never> {
-      throw new Error("fs.utimes is not supported in sandbox");
+    async utimes(path: string, atime: string | number | Date, mtime: string | number | Date): Promise<void> {
+      return fs.utimesSync(path, atime, mtime);
     },
   },
 
@@ -2300,45 +2374,117 @@ const fs = {
     return new WriteStream(pathStr, opts) as unknown as nodeFs.WriteStream;
   },
 
-  // Get unsupported fs APIs as deterministic errors
+  // Unsupported fs APIs — watch requires kernel-level inotify, use polling instead
   watch(..._args: unknown[]): never {
-    throw new Error("fs.watch is not supported in sandbox");
+    throw new Error("fs.watch is not supported in sandbox — use polling");
   },
 
   watchFile(..._args: unknown[]): never {
-    throw new Error("fs.watchFile is not supported in sandbox");
+    throw new Error("fs.watchFile is not supported in sandbox — use polling");
   },
 
   unwatchFile(..._args: unknown[]): never {
-    throw new Error("fs.unwatchFile is not supported in sandbox");
+    throw new Error("fs.unwatchFile is not supported in sandbox — use polling");
   },
 
-  chmod(..._args: unknown[]): never {
-    throw new Error("fs.chmod is not supported in sandbox");
+  chmod(path: PathLike, mode: Mode, callback?: NodeCallback<void>): Promise<void> | void {
+    if (callback) {
+      try {
+        fs.chmodSync(path, mode);
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.chmodSync(path, mode));
+    }
   },
 
-  chown(..._args: unknown[]): never {
-    throw new Error("fs.chown is not supported in sandbox");
+  chown(path: PathLike, uid: number, gid: number, callback?: NodeCallback<void>): Promise<void> | void {
+    if (callback) {
+      try {
+        fs.chownSync(path, uid, gid);
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.chownSync(path, uid, gid));
+    }
   },
 
-  link(..._args: unknown[]): never {
-    throw new Error("fs.link is not supported in sandbox");
+  link(existingPath: PathLike, newPath: PathLike, callback?: NodeCallback<void>): Promise<void> | void {
+    if (callback) {
+      try {
+        fs.linkSync(existingPath, newPath);
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.linkSync(existingPath, newPath));
+    }
   },
 
-  symlink(..._args: unknown[]): never {
-    throw new Error("fs.symlink is not supported in sandbox");
+  symlink(target: PathLike, path: PathLike, typeOrCb?: string | null | NodeCallback<void>, callback?: NodeCallback<void>): Promise<void> | void {
+    if (typeof typeOrCb === "function") {
+      callback = typeOrCb;
+    }
+    if (callback) {
+      try {
+        fs.symlinkSync(target, path);
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.symlinkSync(target, path));
+    }
   },
 
-  readlink(..._args: unknown[]): never {
-    throw new Error("fs.readlink is not supported in sandbox");
+  readlink(path: PathLike, optionsOrCb?: nodeFs.EncodingOption | NodeCallback<string>, callback?: NodeCallback<string>): Promise<string> | void {
+    if (typeof optionsOrCb === "function") {
+      callback = optionsOrCb;
+    }
+    if (callback) {
+      try {
+        callback(null, fs.readlinkSync(path));
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.readlinkSync(path));
+    }
   },
 
-  truncate(..._args: unknown[]): never {
-    throw new Error("fs.truncate is not supported in sandbox");
+  truncate(path: PathLike, lenOrCb?: number | null | NodeCallback<void>, callback?: NodeCallback<void>): Promise<void> | void {
+    if (typeof lenOrCb === "function") {
+      callback = lenOrCb;
+      lenOrCb = 0;
+    }
+    if (callback) {
+      try {
+        fs.truncateSync(path, lenOrCb as number | null);
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.truncateSync(path, lenOrCb as number | null));
+    }
   },
 
-  utimes(..._args: unknown[]): never {
-    throw new Error("fs.utimes is not supported in sandbox");
+  utimes(path: PathLike, atime: string | number | Date, mtime: string | number | Date, callback?: NodeCallback<void>): Promise<void> | void {
+    if (callback) {
+      try {
+        fs.utimesSync(path, atime, mtime);
+        callback(null);
+      } catch (e) {
+        callback(e as Error);
+      }
+    } else {
+      return Promise.resolve(fs.utimesSync(path, atime, mtime));
+    }
   },
 };
 

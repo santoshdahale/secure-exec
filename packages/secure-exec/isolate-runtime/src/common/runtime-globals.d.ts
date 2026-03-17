@@ -4,16 +4,24 @@ import type {
 	CryptoRandomFillBridgeRef,
 	CryptoRandomUuidBridgeRef,
 	DynamicImportBridgeRef,
+	FsChmodBridgeRef,
+	FsChownBridgeRef,
 	FsExistsBridgeRef,
 	FsFacadeBridge,
+	FsLinkBridgeRef,
+	FsLstatBridgeRef,
 	FsMkdirBridgeRef,
 	FsReadDirBridgeRef,
 	FsReadFileBinaryBridgeRef,
 	FsReadFileBridgeRef,
+	FsReadlinkBridgeRef,
 	FsRenameBridgeRef,
 	FsRmdirBridgeRef,
 	FsStatBridgeRef,
+	FsSymlinkBridgeRef,
+	FsTruncateBridgeRef,
 	FsUnlinkBridgeRef,
+	FsUtimesBridgeRef,
 	FsWriteFileBinaryBridgeRef,
 	FsWriteFileBridgeRef,
 	LoadFileBridgeRef,
@@ -117,6 +125,14 @@ declare global {
 	var _fsStat: FsStatBridgeRef;
 	var _fsUnlink: FsUnlinkBridgeRef;
 	var _fsRename: FsRenameBridgeRef;
+	var _fsChmod: FsChmodBridgeRef;
+	var _fsChown: FsChownBridgeRef;
+	var _fsLink: FsLinkBridgeRef;
+	var _fsSymlink: FsSymlinkBridgeRef;
+	var _fsReadlink: FsReadlinkBridgeRef;
+	var _fsLstat: FsLstatBridgeRef;
+	var _fsTruncate: FsTruncateBridgeRef;
+	var _fsUtimes: FsUtimesBridgeRef;
 	var _fs: FsFacadeBridge | undefined;
 
 	var _moduleCache: ModuleCacheBridgeRecord | undefined;

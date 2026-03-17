@@ -545,4 +545,91 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 		}
 		return this.fallbackRename(oldVirtualPath, newVirtualPath);
 	}
+
+	async symlink(target: string, linkPath: string): Promise<void> {
+		const virtualPath = normalizeOverlayPath(linkPath);
+		if (this.isReadOnlyProjectionPath(virtualPath)) {
+			throw createEaccesError("symlink", virtualPath);
+		}
+		if (!this.baseFileSystem) throw createEnoentError("symlink", virtualPath);
+		return this.baseFileSystem.symlink(target, virtualPath);
+	}
+
+	async readlink(path: string): Promise<string> {
+		const virtualPath = normalizeOverlayPath(path);
+		if (!this.baseFileSystem) throw createEnoentError("readlink", virtualPath);
+		return this.baseFileSystem.readlink(virtualPath);
+	}
+
+	async lstat(path: string): Promise<VirtualStat> {
+		const virtualPath = normalizeOverlayPath(path);
+		if (this.isSyntheticPath(virtualPath)) {
+			return createVirtualDirStat();
+		}
+		const hostPath = await this.resolveOverlayHostPath(virtualPath, "lstat");
+		if (hostPath) {
+			const info = await fs.lstat(hostPath);
+			return {
+				mode: info.mode,
+				size: info.size,
+				isDirectory: info.isDirectory(),
+				isSymbolicLink: info.isSymbolicLink(),
+				atimeMs: info.atimeMs,
+				mtimeMs: info.mtimeMs,
+				ctimeMs: info.ctimeMs,
+				birthtimeMs: info.birthtimeMs,
+			};
+		}
+		if (startsWithPath(virtualPath, SANDBOX_NODE_MODULES_ROOT)) {
+			throw createEnoentError("lstat", virtualPath);
+		}
+		if (!this.baseFileSystem) throw createEnoentError("lstat", virtualPath);
+		return this.baseFileSystem.lstat(virtualPath);
+	}
+
+	async link(oldPath: string, newPath: string): Promise<void> {
+		const oldVirtualPath = normalizeOverlayPath(oldPath);
+		const newVirtualPath = normalizeOverlayPath(newPath);
+		if (this.isReadOnlyProjectionPath(newVirtualPath)) {
+			throw createEaccesError("link", newVirtualPath);
+		}
+		if (!this.baseFileSystem) throw createEnoentError("link", oldVirtualPath);
+		return this.baseFileSystem.link(oldVirtualPath, newVirtualPath);
+	}
+
+	async chmod(path: string, mode: number): Promise<void> {
+		const virtualPath = normalizeOverlayPath(path);
+		if (this.isReadOnlyProjectionPath(virtualPath)) {
+			throw createEaccesError("chmod", virtualPath);
+		}
+		if (!this.baseFileSystem) throw createEnoentError("chmod", virtualPath);
+		return this.baseFileSystem.chmod(virtualPath, mode);
+	}
+
+	async chown(path: string, uid: number, gid: number): Promise<void> {
+		const virtualPath = normalizeOverlayPath(path);
+		if (this.isReadOnlyProjectionPath(virtualPath)) {
+			throw createEaccesError("chown", virtualPath);
+		}
+		if (!this.baseFileSystem) throw createEnoentError("chown", virtualPath);
+		return this.baseFileSystem.chown(virtualPath, uid, gid);
+	}
+
+	async utimes(path: string, atime: number, mtime: number): Promise<void> {
+		const virtualPath = normalizeOverlayPath(path);
+		if (this.isReadOnlyProjectionPath(virtualPath)) {
+			throw createEaccesError("utimes", virtualPath);
+		}
+		if (!this.baseFileSystem) throw createEnoentError("utimes", virtualPath);
+		return this.baseFileSystem.utimes(virtualPath, atime, mtime);
+	}
+
+	async truncate(path: string, length: number): Promise<void> {
+		const virtualPath = normalizeOverlayPath(path);
+		if (this.isReadOnlyProjectionPath(virtualPath)) {
+			throw createEaccesError("truncate", virtualPath);
+		}
+		if (!this.baseFileSystem) throw createEnoentError("truncate", virtualPath);
+		return this.baseFileSystem.truncate(virtualPath, length);
+	}
 }

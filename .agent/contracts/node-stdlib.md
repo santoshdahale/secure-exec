@@ -96,11 +96,11 @@ Modules classified as Unsupported (Tier 5) SHALL throw immediately when required
 - **THEN** the call MUST throw an error indicating the module is not supported in sandbox
 
 ### Requirement: fs Missing API Classification
-The following `fs` APIs SHALL be classified as Deferred with deterministic error behavior: `watch`, `watchFile`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`. The APIs `access` and `realpath` SHALL be documented as implemented (Bridge tier).
+The following `fs` APIs SHALL be classified as Deferred with deterministic error behavior: `watch`, `watchFile`. The APIs `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`, `access`, and `realpath` SHALL be documented as implemented (Bridge tier), delegating to the VFS with permission checks.
 
 #### Scenario: Calling a deferred fs API
-- **WHEN** sandboxed code calls `fs.symlink()`
-- **THEN** the call MUST throw `"fs.symlink is not supported in sandbox"`
+- **WHEN** sandboxed code calls `fs.watch()`
+- **THEN** the call MUST throw `"fs.watch is not supported in sandbox — use polling"`
 
 #### Scenario: Calling an implemented fs API previously listed as missing
 - **WHEN** sandboxed code calls `fs.access("/some/path", callback)`

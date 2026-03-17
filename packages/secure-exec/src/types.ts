@@ -12,6 +12,7 @@ export interface VirtualStat {
 	mode: number;
 	size: number;
 	isDirectory: boolean;
+	isSymbolicLink?: boolean;
 	atimeMs: number;
 	mtimeMs: number;
 	ctimeMs: number;
@@ -90,6 +91,36 @@ export interface VirtualFileSystem {
 	 * Behavior SHOULD be atomic when supported by the backing store.
 	 */
 	rename(oldPath: string, newPath: string): Promise<void>;
+
+	// --- Symlinks ---
+
+	/** Create a symbolic link at linkPath pointing to target. */
+	symlink(target: string, linkPath: string): Promise<void>;
+
+	/** Read the target of a symbolic link. */
+	readlink(path: string): Promise<string>;
+
+	/** Like stat but does not follow symlinks. */
+	lstat(path: string): Promise<VirtualStat>;
+
+	// --- Links ---
+
+	/** Create a hard link from oldPath to newPath. */
+	link(oldPath: string, newPath: string): Promise<void>;
+
+	// --- Permissions & Metadata ---
+
+	/** Change file mode bits. */
+	chmod(path: string, mode: number): Promise<void>;
+
+	/** Change file owner and group. */
+	chown(path: string, uid: number, gid: number): Promise<void>;
+
+	/** Update access and modification timestamps. */
+	utimes(path: string, atime: number, mtime: number): Promise<void>;
+
+	/** Truncate a file to a specified length. */
+	truncate(path: string, length: number): Promise<void>;
 }
 
 export interface SpawnedProcess {
@@ -203,7 +234,14 @@ export interface FsAccessRequest {
 		| "stat"
 		| "rm"
 		| "rename"
-		| "exists";
+		| "exists"
+		| "chmod"
+		| "chown"
+		| "link"
+		| "symlink"
+		| "readlink"
+		| "truncate"
+		| "utimes";
 	path: string;
 }
 

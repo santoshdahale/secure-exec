@@ -35,6 +35,14 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	fsStat: "_fsStat",
 	fsUnlink: "_fsUnlink",
 	fsRename: "_fsRename",
+	fsChmod: "_fsChmod",
+	fsChown: "_fsChown",
+	fsLink: "_fsLink",
+	fsSymlink: "_fsSymlink",
+	fsReadlink: "_fsReadlink",
+	fsLstat: "_fsLstat",
+	fsTruncate: "_fsTruncate",
+	fsUtimes: "_fsUtimes",
 	childProcessSpawnStart: "_childProcessSpawnStart",
 	childProcessStdinWrite: "_childProcessStdinWrite",
 	childProcessStdinClose: "_childProcessStdinClose",
@@ -142,6 +150,14 @@ export type FsExistsBridgeRef = BridgeApplySyncPromiseRef<[string], boolean>;
 export type FsStatBridgeRef = BridgeApplySyncPromiseRef<[string], string>;
 export type FsUnlinkBridgeRef = BridgeApplySyncPromiseRef<[string], void>;
 export type FsRenameBridgeRef = BridgeApplySyncPromiseRef<[string, string], void>;
+export type FsChmodBridgeRef = BridgeApplySyncPromiseRef<[string, number], void>;
+export type FsChownBridgeRef = BridgeApplySyncPromiseRef<[string, number, number], void>;
+export type FsLinkBridgeRef = BridgeApplySyncPromiseRef<[string, string], void>;
+export type FsSymlinkBridgeRef = BridgeApplySyncPromiseRef<[string, string], void>;
+export type FsReadlinkBridgeRef = BridgeApplySyncPromiseRef<[string], string>;
+export type FsLstatBridgeRef = BridgeApplySyncPromiseRef<[string], string>;
+export type FsTruncateBridgeRef = BridgeApplySyncPromiseRef<[string, number], void>;
+export type FsUtimesBridgeRef = BridgeApplySyncPromiseRef<[string, number, number], void>;
 
 /** Combined filesystem bridge facade installed as `globalThis._fs` in the isolate. */
 export interface FsFacadeBridge {
@@ -156,6 +172,14 @@ export interface FsFacadeBridge {
 	stat: FsStatBridgeRef;
 	unlink: FsUnlinkBridgeRef;
 	rename: FsRenameBridgeRef;
+	chmod: FsChmodBridgeRef;
+	chown: FsChownBridgeRef;
+	link: FsLinkBridgeRef;
+	symlink: FsSymlinkBridgeRef;
+	readlink: FsReadlinkBridgeRef;
+	lstat: FsLstatBridgeRef;
+	truncate: FsTruncateBridgeRef;
+	utimes: FsUtimesBridgeRef;
 }
 
 // Child process boundary contracts.
