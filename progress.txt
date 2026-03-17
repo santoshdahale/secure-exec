@@ -588,3 +588,17 @@ Started: 2026-03-16
   - For VFS file tests, must mkdir parent dirs before writeFile (e.g., kernel.mkdir('/tmp'))
   - Template literals work well for shell commands with mixed quote types (double quotes for -e arg, single quotes inside JS)
 ---
+
+## 2026-03-16 - US-035
+- Implemented e2e test for npm postinstall/preinstall lifecycle scripts through kernel
+- Test at packages/secure-exec/tests/kernel/e2e-npm-lifecycle.test.ts
+- Two tests: postinstall writes marker.txt, preinstall writes pre-marker.txt
+- Uses NodeFileSystem with real temp dir (same pattern as e2e-npm-install) since npm install needs real filesystem + network
+- Graceful skip when WASM binary not built or network unavailable
+- Files changed: packages/secure-exec/tests/kernel/e2e-npm-lifecycle.test.ts (new), prd.json, progress.txt
+- **Learnings for future iterations:**
+  - Lifecycle script tests need NodeFileSystem (not InMemoryFileSystem) because npm install downloads real packages
+  - Must pre-create /tmp dir inside temp root so lifecycle shell scripts can write there
+  - Network check pattern: reusable async checkNetwork() with 5s abort timeout on HEAD request to registry
+  - vfs.readFile returns Uint8Array — decode with TextDecoder before string assertions
+---

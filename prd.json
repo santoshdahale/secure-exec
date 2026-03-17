@@ -641,8 +641,8 @@
         "Tests pass"
       ],
       "priority": 35,
-      "passes": false,
-      "notes": "Lifecycle scripts are the trickiest npm integration: npm spawns a shell to run each lifecycle script, that shell must route through the kernel to WasmVM. Tests: Node (npm) \u2192 child_process.spawn('sh', ['-c', 'echo ...']) \u2192 kernel command registry \u2192 WasmVM shell \u2192 writes to kernel VFS."
+      "passes": true,
+      "notes": "Test at packages/secure-exec/tests/kernel/e2e-npm-lifecycle.test.ts"
     },
     {
       "id": "US-036",
