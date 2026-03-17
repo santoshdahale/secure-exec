@@ -1404,4 +1404,182 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			expect(filtered).toEqual(env);
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// Process groups and sessions (US-021)
+	// -----------------------------------------------------------------------
+
+	describe("process group and session tracking", () => {
+		it("child inherits parent pgid and sid by default", async () => {
+			const driver = new MockRuntimeDriver(["parent", "child"], {
+				parent: { neverExit: true },
+				child: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+
+			// Spawn parent — no parent PID, so pgid=sid=own pid
+			const parent = kernel.spawn("parent", []);
+			const parentInfo = kernel.processes.get(parent.pid)!;
+			expect(parentInfo.pgid).toBe(parent.pid);
+			expect(parentInfo.sid).toBe(parent.pid);
+
+			// Spawn child from parent context
+			const child = ki.spawn("child", [], {
+				ppid: parent.pid,
+				env: {},
+				cwd: "/",
+			});
+			const childInfo = kernel.processes.get(child.pid)!;
+			expect(childInfo.pgid).toBe(parent.pid);
+			expect(childInfo.sid).toBe(parent.pid);
+
+			parent.kill();
+			child.kill();
+		});
+
+		it("create process group, spawn 3 children, kill(-pgid) signals all", async () => {
+			const killSignals1: number[] = [];
+			const killSignals2: number[] = [];
+			const killSignals3: number[] = [];
+
+			const driver = new MockRuntimeDriver(
+				["leader", "child1", "child2", "child3"],
+				{
+					leader: { neverExit: true },
+					child1: { neverExit: true, killSignals: killSignals1 },
+					child2: { neverExit: true, killSignals: killSignals2 },
+					child3: { neverExit: true, killSignals: killSignals3 },
+				},
+			);
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+
+			// Spawn leader — pgid=leader.pid
+			const leader = kernel.spawn("leader", []);
+
+			// Spawn 3 children inheriting leader's pgid
+			const c1 = ki.spawn("child1", [], { ppid: leader.pid, env: {}, cwd: "/" });
+			const c2 = ki.spawn("child2", [], { ppid: leader.pid, env: {}, cwd: "/" });
+			const c3 = ki.spawn("child3", [], { ppid: leader.pid, env: {}, cwd: "/" });
+
+			// All share the same process group
+			expect(ki.getpgid(c1.pid)).toBe(leader.pid);
+			expect(ki.getpgid(c2.pid)).toBe(leader.pid);
+			expect(ki.getpgid(c3.pid)).toBe(leader.pid);
+
+			// Kill the entire process group via negative pgid
+			ki.kill(-leader.pid, 15);
+
+			// All 3 children received the signal
+			expect(killSignals1).toEqual([15]);
+			expect(killSignals2).toEqual([15]);
+			expect(killSignals3).toEqual([15]);
+
+			// Clean up leader
+			leader.kill();
+		});
+
+		it("setsid creates new session and process group", async () => {
+			const driver = new MockRuntimeDriver(["parent", "child"], {
+				parent: { neverExit: true },
+				child: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+
+			const parent = kernel.spawn("parent", []);
+			const child = ki.spawn("child", [], { ppid: parent.pid, env: {}, cwd: "/" });
+
+			// Child inherits parent's pgid
+			expect(ki.getpgid(child.pid)).toBe(parent.pid);
+			expect(ki.getsid(child.pid)).toBe(parent.pid);
+
+			// Child creates a new session
+			const newSid = ki.setsid(child.pid);
+			expect(newSid).toBe(child.pid);
+			expect(ki.getsid(child.pid)).toBe(child.pid);
+			expect(ki.getpgid(child.pid)).toBe(child.pid);
+
+			parent.kill();
+			child.kill();
+		});
+
+		it("setpgid moves process to existing group", async () => {
+			const driver = new MockRuntimeDriver(["leader", "a", "b"], {
+				leader: { neverExit: true },
+				a: { neverExit: true },
+				b: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+
+			const leader = kernel.spawn("leader", []);
+			const a = ki.spawn("a", [], { ppid: leader.pid, env: {}, cwd: "/" });
+			const b = ki.spawn("b", [], { ppid: leader.pid, env: {}, cwd: "/" });
+
+			// a creates its own group
+			ki.setpgid(a.pid, a.pid);
+			expect(ki.getpgid(a.pid)).toBe(a.pid);
+
+			// b joins a's group
+			ki.setpgid(b.pid, a.pid);
+			expect(ki.getpgid(b.pid)).toBe(a.pid);
+
+			leader.kill();
+			a.kill();
+			b.kill();
+		});
+
+		it("setpgid with invalid pgid throws EPERM", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+
+			// Try to join a non-existent process group
+			expect(() => ki.setpgid(proc.pid, 9999)).toThrow(/EPERM/);
+
+			proc.kill();
+		});
+
+		it("setsid on process group leader throws EPERM", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+
+			// proc.pgid === proc.pid (session leader by default), so setsid fails
+			expect(() => ki.setsid(proc.pid)).toThrow(/EPERM/);
+
+			proc.kill();
+		});
+
+		it("getpgid/getsid on non-existent process throws ESRCH", async () => {
+			const driver = new MockRuntimeDriver(["echo"]);
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			expect(() => ki.getpgid(9999)).toThrow(/ESRCH/);
+			expect(() => ki.getsid(9999)).toThrow(/ESRCH/);
+		});
+
+		it("kill(-pgid) with no matching group throws ESRCH", async () => {
+			const driver = new MockRuntimeDriver(["echo"]);
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			expect(() => ki.kill(-9999, 15)).toThrow(/ESRCH/);
+		});
+	});
 });

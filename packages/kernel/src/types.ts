@@ -192,6 +192,12 @@ export interface KernelInterface {
 	getpid(pid: number): number;
 	getppid(pid: number): number;
 
+	// Process group / session operations
+	setpgid(pid: number, pgid: number): void;
+	getpgid(pid: number): number;
+	setsid(pid: number): number;
+	getsid(pid: number): number;
+
 	// Pipe operations
 	/** Create a pipe and install both ends in the given process's FD table. */
 	pipe(pid: number): { readFd: number; writeFd: number };
@@ -255,6 +261,10 @@ export const FILETYPE_PIPE = 6;
 export interface ProcessEntry {
 	pid: number;
 	ppid: number;
+	/** Process group ID. Defaults to parent's pgid, or pid for session leaders. */
+	pgid: number;
+	/** Session ID. Defaults to parent's sid, or pid for session leaders. */
+	sid: number;
 	driver: string;
 	command: string;
 	args: string[];
@@ -269,6 +279,8 @@ export interface ProcessEntry {
 export interface ProcessInfo {
 	pid: number;
 	ppid: number;
+	pgid: number;
+	sid: number;
 	driver: string;
 	command: string;
 	status: "running" | "stopped" | "exited";
@@ -316,6 +328,9 @@ export class KernelError extends Error {
 export const SIGTERM = 15;
 export const SIGKILL = 9;
 export const SIGINT = 2;
+export const SIGQUIT = 3;
+export const SIGTSTP = 20;
+export const SIGWINCH = 28;
 
 // ---------------------------------------------------------------------------
 // Pipe types

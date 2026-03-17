@@ -441,6 +441,20 @@ class KernelImpl implements Kernel {
 				return this.processTable.getppid(pid);
 			},
 
+			// Process group / session
+			setpgid: (pid, pgid) => {
+				this.processTable.setpgid(pid, pgid);
+			},
+			getpgid: (pid) => {
+				return this.processTable.getpgid(pid);
+			},
+			setsid: (pid) => {
+				return this.processTable.setsid(pid);
+			},
+			getsid: (pid) => {
+				return this.processTable.getsid(pid);
+			},
+
 			// Pipe operations
 			pipe: (pid) => {
 				// Create pipe and install both ends in the process's FD table

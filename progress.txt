@@ -275,3 +275,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - docs.json navigation ordering matters — acceptance criteria specified "between Features and Reference"
   - Mintlify MDX uses Steps, Tabs, Info, CardGroup components for rich layout
 ---
+
+## 2026-03-17 - US-021
+- What was implemented: Process group (pgid) and session ID (sid) tracking in kernel process table with setpgid/setsid/getpgid/getsid syscalls and process group kill
+- Files changed:
+  - packages/kernel/src/types.ts — added pgid/sid to ProcessEntry/ProcessInfo, added setpgid/getpgid/setsid/getsid to KernelInterface, added SIGQUIT/SIGTSTP/SIGWINCH signals
+  - packages/kernel/src/process-table.ts — register() inherits pgid/sid from parent, added setpgid/setsid/getpgid/getsid methods, kill() supports negative pid for process group signals
+  - packages/kernel/src/kernel.ts — wired setpgid/getpgid/setsid/getsid in createKernelInterface()
+  - packages/kernel/src/index.ts — exported SIGQUIT/SIGTSTP/SIGWINCH
+  - packages/kernel/test/kernel-integration.test.ts — added 8 tests covering pgid/sid inheritance, group kill, setsid, setpgid, EPERM/ESRCH error cases
+  - prd.json — marked US-021 as passes: true
+- **Learnings for future iterations:**
+  - Processes without a parent (ppid=0 or parent not found) default to pgid=pid, sid=pid (session leader)
+  - Child inherits parent's pgid/sid at register() time — matches POSIX fork() semantics
+  - kill(-pgid, signal) iterates all entries; only sends to running processes in the group
+  - setsid fails with EPERM if process is already a group leader (pgid === pid) — POSIX constraint
+  - setpgid validates target group exists (at least one running process with that pgid)
+  - MockRuntimeDriver.killSignals config is essential for verifying signal delivery in process group tests
+---

@@ -317,7 +317,7 @@
         "Tests pass"
       ],
       "priority": 21,
-      "passes": false,
+      "passes": true,
       "notes": "P4 — packages/kernel/src/process-table.ts. Prerequisite for PTY/interactive shell."
     },
     {

@@ -34,9 +34,16 @@ export class ProcessTable {
 		ctx: ProcessContext,
 		driverProcess: DriverProcess,
 	): ProcessEntry {
+		// Inherit pgid/sid from parent, or default to own pid (session leader)
+		const parent = ctx.ppid ? this.entries.get(ctx.ppid) : undefined;
+		const pgid = parent?.pgid ?? pid;
+		const sid = parent?.sid ?? pid;
+
 		const entry: ProcessEntry = {
 			pid,
 			ppid: ctx.ppid,
+			pgid,
+			sid,
 			driver,
 			command,
 			args,
@@ -115,12 +122,81 @@ export class ProcessTable {
 		});
 	}
 
-	/** Send a signal to a process via its driver. */
+	/**
+	 * Send a signal to a process or process group.
+	 * If pid > 0, signal a single process.
+	 * If pid < 0, signal all processes in process group abs(pid).
+	 */
 	kill(pid: number, signal: number): void {
+		if (pid < 0) {
+			// Process group kill
+			const pgid = -pid;
+			let found = false;
+			for (const entry of this.entries.values()) {
+				if (entry.pgid === pgid && entry.status === "running") {
+					found = true;
+					entry.driverProcess.kill(signal);
+				}
+			}
+			if (!found) throw new KernelError("ESRCH", `no such process group ${pgid}`);
+			return;
+		}
 		const entry = this.entries.get(pid);
 		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
 		if (entry.status === "exited") return;
 		entry.driverProcess.kill(signal);
+	}
+
+	/** Set process group ID. Process can join existing group or create new one. */
+	setpgid(pid: number, pgid: number): void {
+		const entry = this.entries.get(pid);
+		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+
+		// pgid 0 means "use own PID as pgid"
+		const targetPgid = pgid === 0 ? pid : pgid;
+
+		// Can only join an existing group or create own group
+		if (targetPgid !== pid) {
+			let groupExists = false;
+			for (const e of this.entries.values()) {
+				if (e.pgid === targetPgid && e.status !== "exited") {
+					groupExists = true;
+					break;
+				}
+			}
+			if (!groupExists) throw new KernelError("EPERM", `no such process group ${targetPgid}`);
+		}
+
+		entry.pgid = targetPgid;
+	}
+
+	/** Get process group ID. */
+	getpgid(pid: number): number {
+		const entry = this.entries.get(pid);
+		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+		return entry.pgid;
+	}
+
+	/** Create a new session. Process becomes session leader and process group leader. */
+	setsid(pid: number): number {
+		const entry = this.entries.get(pid);
+		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+
+		// Process must not already be a process group leader
+		if (entry.pgid === pid) {
+			throw new KernelError("EPERM", `process ${pid} is already a process group leader`);
+		}
+
+		entry.sid = pid;
+		entry.pgid = pid;
+		return pid;
+	}
+
+	/** Get session ID. */
+	getsid(pid: number): number {
+		const entry = this.entries.get(pid);
+		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+		return entry.sid;
 	}
 
 	/** Get the parent PID for a process. */
@@ -137,6 +213,8 @@ export class ProcessTable {
 			result.set(pid, {
 				pid: entry.pid,
 				ppid: entry.ppid,
+				pgid: entry.pgid,
+				sid: entry.sid,
 				driver: entry.driver,
 				command: entry.command,
 				status: entry.status,
