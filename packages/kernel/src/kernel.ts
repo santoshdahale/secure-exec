@@ -316,6 +316,10 @@ class KernelImpl implements Kernel {
 		return this.processTable.listProcesses();
 	}
 
+	get zombieTimerCount(): number {
+		return this.processTable.zombieTimerCount;
+	}
+
 	// -----------------------------------------------------------------------
 	// Internal spawn
 	// -----------------------------------------------------------------------

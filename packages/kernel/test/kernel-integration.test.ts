@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
 	TestFileSystem,
 	MockRuntimeDriver,
@@ -1410,51 +1410,112 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	// -----------------------------------------------------------------------
 
 	describe("zombie cleanup timer disposal", () => {
-		it("dispose kernel after process exit → no pending zombie timers fire", async () => {
-			const driver = new MockRuntimeDriver(["short-lived"], {
-				"short-lived": { exitCode: 0 },
-			});
-			const { kernel: k } = await createTestKernel({ drivers: [driver] });
-			kernel = k;
-			const ki = driver.kernelInterface!;
+		it("process exit schedules zombie timer → zombieTimerCount > 0", async () => {
+			vi.useFakeTimers();
+			try {
+				const driver = new MockRuntimeDriver(["short-lived"], {
+					"short-lived": { exitCode: 0 },
+				});
+				const { kernel: k } = await createTestKernel({ drivers: [driver] });
+				kernel = k;
 
-			// Spawn process and let it exit (becomes zombie with 60s cleanup timer)
-			const proc = kernel.spawn("short-lived", []);
-			await proc.wait();
+				expect(kernel.zombieTimerCount).toBe(0);
 
-			// Process should still be in the process table as a zombie
-			// (60s cleanup timer hasn't fired yet)
-			expect(kernel.processes.get(proc.pid)?.status).toBe("exited");
+				// Spawn process and let it exit (becomes zombie with 60s cleanup timer)
+				const proc = kernel.spawn("short-lived", []);
+				await proc.wait();
 
-			// Immediately dispose kernel — should clear the pending timer
-			await kernel.dispose();
+				// Zombie timer should be scheduled
+				expect(kernel.zombieTimerCount).toBe(1);
+				expect(kernel.processes.get(proc.pid)?.status).toBe("exited");
 
-			// If timers weren't cleared, they'd fire 60s later referencing
-			// disposed state. The test passes if no timer warnings/errors occur.
-			// We verify by checking dispose completes cleanly (no throw).
+				await kernel.dispose();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("dispose kernel → zombieTimerCount === 0", async () => {
+			vi.useFakeTimers();
+			try {
+				const driver = new MockRuntimeDriver(["short-lived"], {
+					"short-lived": { exitCode: 0 },
+				});
+				const { kernel: k } = await createTestKernel({ drivers: [driver] });
+				kernel = k;
+
+				const proc = kernel.spawn("short-lived", []);
+				await proc.wait();
+				expect(kernel.zombieTimerCount).toBe(1);
+
+				await kernel.dispose();
+
+				// All timers cleared by dispose
+				expect(kernel.zombieTimerCount).toBe(0);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("advance 60s after dispose → no callbacks fire, no errors", async () => {
+			vi.useFakeTimers();
+			try {
+				const driver = new MockRuntimeDriver(["short-lived"], {
+					"short-lived": { exitCode: 0 },
+				});
+				const { kernel: k } = await createTestKernel({ drivers: [driver] });
+				kernel = k;
+
+				const proc = kernel.spawn("short-lived", []);
+				await proc.wait();
+				const pid = proc.pid;
+				expect(kernel.zombieTimerCount).toBe(1);
+
+				await kernel.dispose();
+				expect(kernel.zombieTimerCount).toBe(0);
+
+				// Advance past the 60s TTL — no timer should fire
+				vi.advanceTimersByTime(60_000);
+
+				// Process entry should still exist (timer didn't reap it)
+				// because dispose cleared the timer before it could fire
+				expect(kernel.processes.get(pid)?.status).toBe("exited");
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 
 		it("dispose kernel with multiple zombie processes → all timers cleared", async () => {
-			const N = 10;
-			const commands = Array.from({ length: N }, (_, i) => `zombie-${i}`);
-			const configs: Record<string, MockCommandConfig> = {};
-			for (const cmd of commands) configs[cmd] = { exitCode: 0 };
+			vi.useFakeTimers();
+			try {
+				const N = 10;
+				const commands = Array.from({ length: N }, (_, i) => `zombie-${i}`);
+				const configs: Record<string, MockCommandConfig> = {};
+				for (const cmd of commands) configs[cmd] = { exitCode: 0 };
 
-			const driver = new MockRuntimeDriver(commands, configs);
-			const { kernel: k } = await createTestKernel({ drivers: [driver] });
-			kernel = k;
+				const driver = new MockRuntimeDriver(commands, configs);
+				const { kernel: k } = await createTestKernel({ drivers: [driver] });
+				kernel = k;
 
-			// Spawn all processes and let them exit (each gets a 60s zombie timer)
-			const procs = commands.map((cmd) => kernel.spawn(cmd, []));
-			await Promise.all(procs.map((p) => p.wait()));
+				const procs = commands.map((cmd) => kernel.spawn(cmd, []));
+				await Promise.all(procs.map((p) => p.wait()));
 
-			// All should be in zombie state
-			for (const proc of procs) {
-				expect(kernel.processes.get(proc.pid)?.status).toBe("exited");
+				// All 10 zombie timers should be pending
+				expect(kernel.zombieTimerCount).toBe(N);
+				for (const proc of procs) {
+					expect(kernel.processes.get(proc.pid)?.status).toBe("exited");
+				}
+
+				await kernel.dispose();
+
+				// All timers cleared
+				expect(kernel.zombieTimerCount).toBe(0);
+
+				// Advancing time should have no effect
+				vi.advanceTimersByTime(60_000);
+			} finally {
+				vi.useRealTimers();
 			}
-
-			// Dispose should clear all 10 pending timers
-			await kernel.dispose();
 		});
 	});
 

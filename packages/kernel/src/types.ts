@@ -70,6 +70,8 @@ export interface Kernel {
 	// Introspection
 	readonly commands: ReadonlyMap<string, string>;
 	readonly processes: ReadonlyMap<number, ProcessInfo>;
+	/** Number of pending zombie cleanup timers (test observability). */
+	readonly zombieTimerCount: number;
 }
 
 export interface ExecOptions {

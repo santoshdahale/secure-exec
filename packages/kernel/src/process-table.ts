@@ -68,6 +68,11 @@ export class ProcessTable {
 		return this.entries.get(pid);
 	}
 
+	/** Count pending zombie cleanup timers (test observability). */
+	get zombieTimerCount(): number {
+		return this.zombieTimers.size;
+	}
+
 	/** Count running (non-exited) processes. */
 	runningCount(): number {
 		let count = 0;
