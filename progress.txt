@@ -63,3 +63,10 @@ Started: 2026-03-16
   - Adding a VFS method requires updating: interface, all implementations, device layer, permissions wrapper
   - secure-exec's own VFS (packages/secure-exec/src/) is a separate interface, not the kernel's
 ---
+
+## 2026-03-16 - US-005 through US-011
+- All kernel components (FD table, process table, device layer, command registry, pipe manager, permissions, user, kernel entry point) and OS packages (os/node, os/browser) already existed from commit b7a78c4
+- Validated all acceptance criteria against existing code
+- No implementation work needed — just verification and marking passes: true
+- Files changed: prd.json
+---

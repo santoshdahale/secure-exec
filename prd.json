@@ -81,8 +81,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented in commit b7a78c4; 8 tests passing"
     },
     {
       "id": "US-006",
@@ -98,8 +98,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented in commit b7a78c4; 6 tests passing"
     },
     {
       "id": "US-007",
@@ -115,8 +115,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented in commit b7a78c4; 10 tests passing"
     },
     {
       "id": "US-008",
@@ -133,8 +133,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented in commit b7a78c4; 5 command-registry + 7 pipe-manager tests passing"
     },
     {
       "id": "US-009",
@@ -151,8 +151,8 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented in commit b7a78c4; wrapFileSystem, presets, UserManager, KernelImpl all present"
     },
     {
       "id": "US-010",
@@ -167,8 +167,8 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented in commit b7a78c4; NodeFileSystem and NodeWorkerAdapter present"
     },
     {
       "id": "US-011",
@@ -183,8 +183,8 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented in commit b7a78c4; InMemoryFileSystem and BrowserWorkerAdapter present"
     },
     {
       "id": "US-012",
