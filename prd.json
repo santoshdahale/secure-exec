@@ -661,7 +661,7 @@
         "Tests pass"
       ],
       "priority": 36,
-      "passes": false,
+      "passes": true,
       "notes": "concurrently spawns multiple child_process instances simultaneously. This tests: kernel process table concurrent PID allocation, kernel command registry handling multiple simultaneous resolves, WasmVM running multiple workers in parallel, kernel pipe multiplexing stdout from multiple processes."
     },
     {

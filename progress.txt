@@ -602,3 +602,16 @@ Started: 2026-03-16
   - Network check pattern: reusable async checkNetwork() with 5s abort timeout on HEAD request to registry
   - vfs.readFile returns Uint8Array — decode with TextDecoder before string assertions
 ---
+
+## 2026-03-16 - US-036
+- Implemented e2e test for concurrently package running parallel processes through kernel
+- Tests: two echo commands in parallel, shell operators (&&), --kill-others-on-fail non-zero exit, concurrent PID uniqueness
+- Pre-installs concurrently on host via npm, then mounts NodeFileSystem so kernel finds node_modules/.bin/
+- Gracefully skips when WASM binary not built (consistent with other e2e tests)
+- Files changed: packages/secure-exec/tests/kernel/e2e-concurrently.test.ts (new), prd.json, progress.txt
+- **Learnings for future iterations:**
+  - Use host-side npm install in beforeAll with NodeFileSystem overlay for tests needing pre-installed packages
+  - concurrently v8 works with `npx concurrently` — tests kernel's child_process interception for parallel spawns
+  - For failure exit code tests, pass `"exit 1"` as concurrently command — concurrently wraps each in shell
+  - kernel.spawn() returns ManagedProcess with .pid immediately — use Set to verify PID uniqueness
+---
