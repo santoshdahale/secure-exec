@@ -1,4 +1,3 @@
-// @ts-nocheck
 // child_process module polyfill for isolated-vm
 // Provides Node.js child_process module emulation that bridges to host
 //
@@ -372,7 +371,8 @@ function exec(
     }
   });
 
-  child.on("close", (code: number) => {
+  child.on("close", (...args: unknown[]) => {
+    const code = args[0] as number;
     if (callback) {
       if (maxBufferExceeded) {
         const err: ExecError = new Error("stdout maxBuffer length exceeded");
@@ -694,7 +694,8 @@ function execFile(
     }
   });
 
-  child.on("close", (code: number) => {
+  child.on("close", (...args: unknown[]) => {
+    const code = args[0] as number;
     if (cb) {
       if (maxBufferExceeded) {
         const err: ExecError = new Error("stdout maxBuffer length exceeded");
