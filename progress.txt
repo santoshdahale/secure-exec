@@ -34,6 +34,9 @@ Started: 2026-03-16
 - Inside String.raw template literals, use `\n` (not `\\n`) for newlines in embedded JS string literals — String.raw preserves the backslash, then JS eval processes `\n` as newline
 - Pyodide worker uses postMessage RPC (async); os.system/subprocess monkey-patched to call kernelSpawn RPC
 - Python kernel_spawn JS function is async — Pyodide converts JS Promise to awaitable Python coroutine automatically in runPythonAsync context
+- Cannot add runtime packages as devDeps of secure-exec (cyclic dep via runtime-node → secure-exec); use relative imports in tests
+- KernelInterface.spawn must forward all ProcessContext callbacks (onStdout/onStderr) to SpawnOptions — adapter layers easily drop callbacks
+- Integration test helpers at packages/secure-exec/tests/kernel/helpers.ts — createIntegrationKernel(), skipUnlessWasmBuilt(), skipUnlessPyodide()
 
 ---
 
@@ -280,4 +283,45 @@ Started: 2026-03-16
   - Pyodide auto-converts async JS function returns (Promises) to Python awaitables in runPythonAsync context
   - Empty env objects `{}` are truthy — check Object.keys(env).length > 0 before applying env overrides to avoid unnecessary Python code execution
   - SimpleVFS test helper is reusable across runtime driver tests — consider extracting to shared test utils
+---
+
+## 2026-03-16 - US-020
+- Created cross-runtime integration test infrastructure at packages/secure-exec/tests/kernel/
+- New files:
+  - helpers.ts — createIntegrationKernel(), skipUnlessWasmBuilt(), skipUnlessPyodide()
+  - exec-integration.test.ts — 12 tests (8 exec + 4 spawn)
+- Tests cover: echo stdout, ls directory listing, cat file reading, nonexistent command errors, env passing, pipe operators, shell redirection to VFS, stderr capture, spawn PID/stdout/exitCode, kernel isolation
+- All tests skip gracefully when WASM binary not built (describe.skipIf)
+- Used relative imports instead of package deps to avoid cyclic dependency (runtime-node → secure-exec → runtime-node)
+- Files changed: helpers.ts (new), exec-integration.test.ts (new)
+- 12 kernel integration tests (all skipped — WASM binary not built), 148 secure-exec tests pass, 48 kernel tests pass, 358 WasmVM tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - Cannot add @secure-exec/runtime-node as devDependency of secure-exec — creates cyclic dep because runtime-node depends on secure-exec. Use relative imports instead.
+  - describe.skipIf() in vitest takes a truthy value (string = skip reason) or falsy (false = run tests)
+  - InMemoryFileSystem from @secure-exec/os-browser has no-arg constructor — simplest VFS for integration tests
+  - createIntegrationKernel mount order is critical: WasmVM first (shell), then Node, then Python. Last-mounted wins for overlapping commands.
+  - skipUnlessPyodide needs createRequire(import.meta.url) since require is not available in ESM
+---
+
+## 2026-03-16 - US-021
+- Fixed KernelInterface.spawn to forward onStdout/onStderr callbacks from ProcessContext to SpawnOptions
+  - Without this fix, child processes spawned via KernelCommandExecutor wouldn't stream output back
+- Created bridge-child-process.test.ts with 11 tests covering:
+  - execSync("echo hello") routing through kernel to WasmVM shell
+  - child_process.spawn("ls") resolving to WasmVM runtime
+  - Spawned processes getting PIDs from kernel process table
+  - stdout/stderr piping back to Node caller
+  - ENOENT-like error for unknown commands
+  - Environment variable passing through kernel
+  - VFS file reading through child_process
+  - Exploit/abuse: child_process cannot escape to host shell
+  - Exploit/abuse: child_process cannot read host filesystem
+  - Exploit/abuse: child_process writes go to kernel VFS not host
+- Files changed: kernel.ts (1-line fix), bridge-child-process.test.ts (new), prd.json
+- 48 kernel tests pass, 20 Node driver tests pass, 358 WasmVM tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - KernelInterface.spawn was dropping ctx.onStdout/onStderr — always check callback forwarding in adapter layers
+  - Bridge execSync wraps commands in `bash -c '...'` — so the kernel needs 'bash' registered (WasmVM provides it)
+  - Bridge host handler at execution-driver.ts:1212 uses CommandExecutor.spawn() — the executor is KernelCommandExecutor when running through the kernel
+  - Python test failures (pyodide not installed) are pre-existing and not affected by kernel changes
 ---

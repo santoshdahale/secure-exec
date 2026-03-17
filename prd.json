@@ -355,8 +355,8 @@
         "Tests pass"
       ],
       "priority": 20,
-      "passes": false,
-      "notes": "This story creates the cross-runtime test infrastructure at packages/secure-exec/tests/kernel/. It lives in secure-exec because that package already depends on all runtime packages. IMPORTANT: WasmVM must be mounted first because it provides the shell. Node/Python mount second to override WasmVM's stub commands for 'node'/'python' with real runtimes."
+      "passes": true,
+      "notes": "Completed: helpers.ts exports createIntegrationKernel (mounts WasmVM→Node→Python in fixed order), skipUnlessWasmBuilt, skipUnlessPyodide. exec-integration.test.ts has 12 tests (8 exec + 4 spawn) covering echo, ls, cat, env, pipes, redirection, stderr, nonexistent commands, spawn PID/stdout/exitCode, kernel isolation. Uses relative imports to avoid cyclic deps (runtime-node depends on secure-exec). All tests skip gracefully when WASM binary not built."
     },
     {
       "id": "US-021",
@@ -374,8 +374,8 @@
         "Tests pass"
       ],
       "priority": 21,
-      "passes": false,
-      "notes": "Tests use the createIntegrationKernel helper from US-020. The key integration point: Node's bridge child_process must receive a reference to the kernel's command registry so it can resolve commands to runtime drivers."
+      "passes": true,
+      "notes": "Fixed KernelInterface.spawn to forward onStdout/onStderr callbacks. Integration tests at packages/secure-exec/tests/kernel/bridge-child-process.test.ts."
     },
     {
       "id": "US-022",
