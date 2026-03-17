@@ -1598,6 +1598,9 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const proc = kernel.spawn("proc", []);
 			const { masterFd, slaveFd } = ki.openpty(proc.pid);
 
+			// Set raw mode for direct pass-through
+			ki.ptySetDiscipline(proc.pid, masterFd, { canonical: false, echo: false, isig: false });
+
 			const msg = new TextEncoder().encode("hello\n");
 			ki.fdWrite(proc.pid, masterFd, msg);
 
@@ -1655,6 +1658,10 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 			const pty0 = ki.openpty(proc.pid);
 			const pty1 = ki.openpty(proc.pid);
+
+			// Set raw mode for data pass-through tests
+			ki.ptySetDiscipline(proc.pid, pty0.masterFd, { canonical: false, echo: false, isig: false });
+			ki.ptySetDiscipline(proc.pid, pty1.masterFd, { canonical: false, echo: false, isig: false });
 
 			// Distinct paths
 			expect(pty0.path).not.toBe(pty1.path);
@@ -1724,6 +1731,9 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const ki = driver.kernelInterface!;
 			const proc = kernel.spawn("proc", []);
 			const { masterFd, slaveFd } = ki.openpty(proc.pid);
+
+			// Set raw mode for direct pass-through
+			ki.ptySetDiscipline(proc.pid, masterFd, { canonical: false, echo: false, isig: false });
 
 			// Write multiple chunks master→slave
 			ki.fdWrite(proc.pid, masterFd, new TextEncoder().encode("ab"));
@@ -2017,6 +2027,223 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			expect(killSignals).toContain(2); // SIGINT delivered
 
 			parent.kill();
+		});
+	});
+
+	// -------------------------------------------------------------------
+	// Termios support (terminal attributes)
+	// -------------------------------------------------------------------
+
+	describe("termios support", () => {
+		it("default termios has canonical, echo, and isig on", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { slaveFd } = ki.openpty(proc.pid);
+
+			const termios = ki.tcgetattr(proc.pid, slaveFd);
+			expect(termios.icanon).toBe(true);
+			expect(termios.echo).toBe(true);
+			expect(termios.isig).toBe(true);
+			expect(termios.cc.vintr).toBe(0x03);
+			expect(termios.cc.vquit).toBe(0x1c);
+			expect(termios.cc.vsusp).toBe(0x1a);
+			expect(termios.cc.veof).toBe(0x04);
+			expect(termios.cc.verase).toBe(0x7f);
+
+			proc.kill();
+		});
+
+		it("spawn on PTY in canonical mode verifies line buffering", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { masterFd, slaveFd } = ki.openpty(proc.pid);
+
+			// Default termios is canonical — input should be line-buffered
+			ki.fdWrite(proc.pid, masterFd, new TextEncoder().encode("hello"));
+
+			// Start a read that should block (no newline yet)
+			let readResolved = false;
+			const readPromise = ki.fdRead(proc.pid, slaveFd, 1024).then((d) => {
+				readResolved = true;
+				return d;
+			});
+
+			await new Promise((r) => setTimeout(r, 10));
+			expect(readResolved).toBe(false);
+
+			// Flush with newline
+			ki.fdWrite(proc.pid, masterFd, new Uint8Array([0x0a]));
+			const data = await readPromise;
+			expect(new TextDecoder().decode(data)).toBe("hello\n");
+
+			proc.kill();
+		});
+
+		it("tcsetattr with icanon: false switches to raw mode — immediate byte delivery", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { masterFd, slaveFd } = ki.openpty(proc.pid);
+
+			// Switch to raw mode via tcsetattr
+			ki.tcsetattr(proc.pid, slaveFd, { icanon: false, echo: false, isig: false });
+
+			// Verify termios updated
+			const termios = ki.tcgetattr(proc.pid, slaveFd);
+			expect(termios.icanon).toBe(false);
+			expect(termios.echo).toBe(false);
+			expect(termios.isig).toBe(false);
+
+			// Single byte immediately readable (no newline needed)
+			ki.fdWrite(proc.pid, masterFd, new Uint8Array([0x41])); // 'A'
+			const data = await ki.fdRead(proc.pid, slaveFd, 1024);
+			expect(new TextDecoder().decode(data)).toBe("A");
+
+			proc.kill();
+		});
+
+		it("tcsetattr with echo: false disables echo", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { masterFd, slaveFd } = ki.openpty(proc.pid);
+
+			// Disable echo but keep canonical
+			ki.tcsetattr(proc.pid, slaveFd, { echo: false });
+
+			// Write input through master
+			ki.fdWrite(proc.pid, masterFd, new TextEncoder().encode("hi\n"));
+
+			// Slave reads the flushed line
+			const slaveData = await ki.fdRead(proc.pid, slaveFd, 1024);
+			expect(new TextDecoder().decode(slaveData)).toBe("hi\n");
+
+			// Master should NOT have echo data — start a read that should block
+			let masterReadResolved = false;
+			ki.fdRead(proc.pid, masterFd, 1024).then(() => {
+				masterReadResolved = true;
+			});
+
+			await new Promise((r) => setTimeout(r, 10));
+			expect(masterReadResolved).toBe(false);
+
+			proc.kill();
+		});
+
+		it("tcsetpgrp changes which group receives ^C", async () => {
+			const killSignalsA: number[] = [];
+			const killSignalsB: number[] = [];
+			const driver = new MockRuntimeDriver(["parent", "childA", "childB"], {
+				parent: { neverExit: true },
+				childA: { neverExit: true, killSignals: killSignalsA },
+				childB: { neverExit: true, killSignals: killSignalsB },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent", []);
+			const childA = kernel.spawn("childA", []);
+			const childB = kernel.spawn("childB", []);
+
+			// Put each child in its own process group
+			ki.setpgid(childA.pid, childA.pid);
+			ki.setpgid(childB.pid, childB.pid);
+
+			const { masterFd } = ki.openpty(parent.pid);
+
+			// Set foreground to childA's group via tcsetpgrp
+			ki.tcsetpgrp(parent.pid, masterFd, childA.pid);
+			expect(ki.tcgetpgrp(parent.pid, masterFd)).toBe(childA.pid);
+
+			// ^C → childA gets SIGINT, not childB
+			ki.fdWrite(parent.pid, masterFd, new Uint8Array([0x03]));
+			expect(killSignalsA).toContain(2);
+			expect(killSignalsB).not.toContain(2);
+
+			// Switch foreground to childB's group
+			ki.tcsetpgrp(parent.pid, masterFd, childB.pid);
+			expect(ki.tcgetpgrp(parent.pid, masterFd)).toBe(childB.pid);
+
+			// ^C → childB gets SIGINT
+			ki.fdWrite(parent.pid, masterFd, new Uint8Array([0x03]));
+			expect(killSignalsB).toContain(2);
+
+			parent.kill();
+		});
+
+		it("tcgetattr returns a copy — mutation does not affect PTY", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { slaveFd } = ki.openpty(proc.pid);
+
+			const termios = ki.tcgetattr(proc.pid, slaveFd);
+			termios.icanon = false;
+			termios.cc.vintr = 0xff;
+
+			// Original should be unchanged
+			const termios2 = ki.tcgetattr(proc.pid, slaveFd);
+			expect(termios2.icanon).toBe(true);
+			expect(termios2.cc.vintr).toBe(0x03);
+
+			proc.kill();
+		});
+
+		it("tcgetattr/tcsetattr work from both master and slave FDs", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { masterFd, slaveFd } = ki.openpty(proc.pid);
+
+			// Set via master FD
+			ki.tcsetattr(proc.pid, masterFd, { icanon: false });
+
+			// Read back via slave FD — same PTY, should see the change
+			const termios = ki.tcgetattr(proc.pid, slaveFd);
+			expect(termios.icanon).toBe(false);
+
+			proc.kill();
+		});
+
+		it("tcgetattr on non-PTY FD throws EBADF", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { readFd } = ki.pipe(proc.pid);
+
+			expect(() => ki.tcgetattr(proc.pid, readFd)).toThrow(/EBADF/);
+
+			proc.kill();
 		});
 	});
 });

@@ -62,8 +62,10 @@ PRD: ralph/kernel-hardening (46 stories)
 - PtyManager description IDs start at 200,000 (pipes at 100,000, regular FDs at 1) — avoid collisions between managers
 - PTY is bidirectional: master write→slave read (input), slave write→master read (output); isatty() is true only for slave FDs
 - Adding a new FD-managed resource (like PTY) requires updating: fdRead, fdWrite, fdClose, fdSeek, isStdioPiped, cleanupProcessFDs in kernel.ts
-- PTY line discipline: default is raw mode (no processing); enable canonical/echo/isig via ptySetDiscipline; signal delivery uses PtyManager onSignal callback → processTable.kill(-pgid, signal)
+- PTY default termios: icanon=true, echo=true, isig=true (POSIX standard); tests wanting raw mode must explicitly set via tcsetattr or ptySetDiscipline
 - PTY setDiscipline/setForegroundPgid take description ID internally but KernelInterface methods take (pid, fd) and resolve through FD table
+- Termios API: tcgetattr/tcsetattr/tcsetpgrp/tcgetpgrp in KernelInterface; PtyManager stores Termios per PTY with configurable cc (control characters)
+- tcgetattr returns a deep copy — callers cannot mutate internal state
 
 ---
 
@@ -333,4 +335,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - PtyManager.onSignal callback wraps processTable.kill(-pgid, signal) with try/catch since pgid may be gone
   - Master writes go through processInput; slave writes bypass discipline entirely (they're program output)
   - Fast path: when all discipline flags are off, data is passed directly to inputBuffer without byte-by-byte scanning
+---
+
+## 2026-03-17 - US-024
+- What was implemented: Termios support with tcgetattr/tcsetattr/tcsetpgrp/tcgetpgrp syscalls; Termios interface with configurable control characters; default PTY mode changed to canonical+echo+isig on (POSIX standard)
+- Files changed:
+  - packages/kernel/src/types.ts — added Termios, TermiosCC interfaces and defaultTermios() factory; added tcgetattr/tcsetattr/tcsetpgrp/tcgetpgrp to KernelInterface
+  - packages/kernel/src/pty.ts — replaced internal LineDisciplineConfig with Termios; signalForByte now uses cc values; added getTermios/setTermios/getForegroundPgid methods; default changed to canonical+echo+isig on
+  - packages/kernel/src/kernel.ts — wired tcgetattr/tcsetattr/tcsetpgrp/tcgetpgrp through FD table resolution to PtyManager
+  - packages/kernel/src/index.ts — exported Termios, TermiosCC types and defaultTermios function
+  - packages/kernel/test/kernel-integration.test.ts — fixed 3 US-022 tests to explicitly set raw mode (previously relied on raw default); added 8 termios tests
+  - prd.json — marked US-024 as passes: true
+- **Learnings for future iterations:**
+  - Changing PTY default from raw to canonical+echo+isig broke US-022 tests that wrote data without newline — fix is to add explicit raw mode setup
+  - Termios stored per PtyState, not per FD — both master and slave FDs on the same PTY share the same termios
+  - tcgetattr must return a deep copy to prevent callers from mutating internal state
+  - setDiscipline (backward compat API) maps canonical→icanon internally; both APIs modify the same Termios object
+  - signalForByte uses termios.cc values (vintr/vquit/vsusp) rather than hardcoded constants, allowing custom signal characters
 ---

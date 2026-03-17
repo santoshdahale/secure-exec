@@ -504,6 +504,32 @@ class KernelImpl implements Kernel {
 				this.ptyManager.setForegroundPgid(entry.description.id, pgid);
 			},
 
+			// Termios operations
+			tcgetattr: (pid, fd) => {
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				return this.ptyManager.getTermios(entry.description.id);
+			},
+			tcsetattr: (pid, fd, termios) => {
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				this.ptyManager.setTermios(entry.description.id, termios);
+			},
+			tcsetpgrp: (pid, fd, pgid) => {
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				this.ptyManager.setForegroundPgid(entry.description.id, pgid);
+			},
+			tcgetpgrp: (pid, fd) => {
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				return this.ptyManager.getForegroundPgid(entry.description.id);
+			},
+
 			// Environment
 			getenv: (pid) => {
 				const entry = this.processTable.get(pid);

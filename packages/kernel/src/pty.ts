@@ -7,14 +7,12 @@
  * Follows the same FileDescription/refCount pattern as PipeManager.
  */
 
-import type { FileDescription } from "./types.js";
+import type { FileDescription, Termios } from "./types.js";
 import {
 	FILETYPE_CHARACTER_DEVICE,
 	O_RDWR,
 	KernelError,
-	SIGINT,
-	SIGQUIT,
-	SIGTSTP,
+	defaultTermios,
 } from "./types.js";
 import type { ProcessFDTable } from "./fd-table.js";
 
@@ -46,8 +44,8 @@ interface PtyState {
 	inputWaiters: Array<(data: Uint8Array | null) => void>;
 	/** Resolves waiting for output data (master reads) */
 	outputWaiters: Array<(data: Uint8Array | null) => void>;
-	/** Line discipline configuration */
-	discipline: LineDisciplineConfig;
+	/** Terminal attributes (controls line discipline behavior) */
+	termios: Termios;
 	/** Canonical mode line editing buffer */
 	lineBuffer: number[];
 	/** Foreground process group for signal delivery */
@@ -102,7 +100,7 @@ export class PtyManager {
 			closed: { master: false, slave: false },
 			inputWaiters: [],
 			outputWaiters: [],
-			discipline: { canonical: false, echo: false, isig: false },
+			termios: defaultTermios(),
 			lineBuffer: [],
 			foregroundPgid: 0,
 		};
@@ -258,9 +256,9 @@ export class PtyManager {
 		const state = this.ptys.get(ptyId);
 		if (!state) throw new KernelError("EBADF", "PTY not found");
 
-		if (config.canonical !== undefined) state.discipline.canonical = config.canonical;
-		if (config.echo !== undefined) state.discipline.echo = config.echo;
-		if (config.isig !== undefined) state.discipline.isig = config.isig;
+		if (config.canonical !== undefined) state.termios.icanon = config.canonical;
+		if (config.echo !== undefined) state.termios.echo = config.echo;
+		if (config.isig !== undefined) state.termios.isig = config.isig;
 	}
 
 	/** Set the foreground process group for signal delivery on this PTY. */
@@ -269,6 +267,39 @@ export class PtyManager {
 		const state = this.ptys.get(ptyId);
 		if (!state) throw new KernelError("EBADF", "PTY not found");
 		state.foregroundPgid = pgid;
+	}
+
+	/** Get terminal attributes for the PTY containing this description. */
+	getTermios(descriptionId: number): Termios {
+		const ptyId = this.getPtyId(descriptionId);
+		const state = this.ptys.get(ptyId);
+		if (!state) throw new KernelError("EBADF", "PTY not found");
+		return {
+			icanon: state.termios.icanon,
+			echo: state.termios.echo,
+			isig: state.termios.isig,
+			cc: { ...state.termios.cc },
+		};
+	}
+
+	/** Set terminal attributes for the PTY containing this description. */
+	setTermios(descriptionId: number, termios: Partial<Termios>): void {
+		const ptyId = this.getPtyId(descriptionId);
+		const state = this.ptys.get(ptyId);
+		if (!state) throw new KernelError("EBADF", "PTY not found");
+
+		if (termios.icanon !== undefined) state.termios.icanon = termios.icanon;
+		if (termios.echo !== undefined) state.termios.echo = termios.echo;
+		if (termios.isig !== undefined) state.termios.isig = termios.isig;
+		if (termios.cc) Object.assign(state.termios.cc, termios.cc);
+	}
+
+	/** Get the foreground process group for the PTY containing this description. */
+	getForegroundPgid(descriptionId: number): number {
+		const ptyId = this.getPtyId(descriptionId);
+		const state = this.ptys.get(ptyId);
+		if (!state) throw new KernelError("EBADF", "PTY not found");
+		return state.foregroundPgid;
 	}
 
 	/** Get the PTY ID from a description ID. */
@@ -287,10 +318,10 @@ export class PtyManager {
 	 * Master writes go through here before reaching the slave's input buffer.
 	 */
 	private processInput(state: PtyState, data: Uint8Array): number {
-		const { discipline } = state;
+		const { termios } = state;
 
 		// Fast path: no discipline processing (raw pass-through)
-		if (!discipline.canonical && !discipline.echo && !discipline.isig) {
+		if (!termios.icanon && !termios.echo && !termios.isig) {
 			this.deliverInput(state, data);
 			return data.length;
 		}
@@ -298,18 +329,18 @@ export class PtyManager {
 		// Process byte by byte through discipline
 		for (const byte of data) {
 			// Signal character handling (requires isig)
-			if (discipline.isig) {
-				const signal = this.signalForByte(byte);
+			if (termios.isig) {
+				const signal = this.signalForByte(state, byte);
 				if (signal !== null) {
-					if (discipline.canonical) state.lineBuffer.length = 0;
+					if (termios.icanon) state.lineBuffer.length = 0;
 					if (state.foregroundPgid > 0) this.onSignal?.(state.foregroundPgid, signal);
 					continue;
 				}
 			}
 
-			if (discipline.canonical) {
-				// ^D: EOF or flush
-				if (byte === 0x04) {
+			if (termios.icanon) {
+				// EOF char: flush or signal EOF
+				if (byte === termios.cc.veof) {
 					if (state.lineBuffer.length === 0) {
 						this.deliverInput(state, new Uint8Array(0));
 					} else {
@@ -319,11 +350,11 @@ export class PtyManager {
 					continue;
 				}
 
-				// Backspace / DEL: erase last char
-				if (byte === 0x7f || byte === 0x08) {
+				// Erase char: erase last char
+				if (byte === termios.cc.verase || byte === 0x08) {
 					if (state.lineBuffer.length > 0) {
 						state.lineBuffer.pop();
-						if (discipline.echo) {
+						if (termios.echo) {
 							this.echoOutput(state, new Uint8Array([0x08, 0x20, 0x08]));
 						}
 					}
@@ -333,7 +364,7 @@ export class PtyManager {
 				// Newline: flush line
 				if (byte === 0x0a) {
 					state.lineBuffer.push(0x0a);
-					if (discipline.echo) this.echoOutput(state, new Uint8Array([0x0a]));
+					if (termios.echo) this.echoOutput(state, new Uint8Array([0x0a]));
 					this.deliverInput(state, new Uint8Array(state.lineBuffer));
 					state.lineBuffer.length = 0;
 					continue;
@@ -341,10 +372,10 @@ export class PtyManager {
 
 				// Regular char: buffer
 				state.lineBuffer.push(byte);
-				if (discipline.echo) this.echoOutput(state, new Uint8Array([byte]));
+				if (termios.echo) this.echoOutput(state, new Uint8Array([byte]));
 			} else {
 				// Raw mode: deliver immediately
-				if (discipline.echo) this.echoOutput(state, new Uint8Array([byte]));
+				if (termios.echo) this.echoOutput(state, new Uint8Array([byte]));
 				this.deliverInput(state, new Uint8Array([byte]));
 			}
 		}
@@ -372,14 +403,13 @@ export class PtyManager {
 		}
 	}
 
-	/** Map control byte to signal number, or null if not a signal char. */
-	private signalForByte(byte: number): number | null {
-		switch (byte) {
-			case 0x03: return SIGINT;   // ^C
-			case 0x1a: return SIGTSTP;  // ^Z
-			case 0x1c: return SIGQUIT;  // ^\
-			default: return null;
-		}
+	/** Map control byte to signal number using termios cc, or null if not a signal char. */
+	private signalForByte(state: PtyState, byte: number): number | null {
+		const { cc } = state.termios;
+		if (byte === cc.vintr) return 2;   // SIGINT
+		if (byte === cc.vsusp) return 20;  // SIGTSTP
+		if (byte === cc.vquit) return 3;   // SIGQUIT
+		return null;
 	}
 
 	private drainBuffer(buffer: Uint8Array[], length: number): Uint8Array {

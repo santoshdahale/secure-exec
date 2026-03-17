@@ -216,6 +216,16 @@ export interface KernelInterface {
 	/** Set the foreground process group for signal delivery on the PTY. */
 	ptySetForegroundPgid(pid: number, fd: number, pgid: number): void;
 
+	// Termios operations
+	/** Get terminal attributes for the PTY associated with the given FD. */
+	tcgetattr(pid: number, fd: number): Termios;
+	/** Set terminal attributes for the PTY associated with the given FD. */
+	tcsetattr(pid: number, fd: number, termios: Partial<Termios>): void;
+	/** Set the foreground process group for the terminal. */
+	tcsetpgrp(pid: number, fd: number, pgid: number): void;
+	/** Get the foreground process group for the terminal. */
+	tcgetpgrp(pid: number, fd: number): number;
+
 	// Environment
 	getenv(pid: number): Record<string, string>;
 	getcwd(pid: number): string;
@@ -336,6 +346,46 @@ export class KernelError extends Error {
 		this.code = code;
 		this.name = "KernelError";
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Termios (terminal attributes)
+// ---------------------------------------------------------------------------
+
+/** Terminal attributes — controls line discipline behavior on a PTY. */
+export interface Termios {
+	/** Canonical mode: buffer input until newline, handle backspace. */
+	icanon: boolean;
+	/** Echo input bytes back through output (master reads them). */
+	echo: boolean;
+	/** Enable signal generation from control characters (^C, ^Z, ^\). */
+	isig: boolean;
+	/** Control characters. */
+	cc: TermiosCC;
+}
+
+export interface TermiosCC {
+	vintr: number;   // Default ^C (0x03) → SIGINT
+	vquit: number;   // Default ^\ (0x1C) → SIGQUIT
+	vsusp: number;   // Default ^Z (0x1A) → SIGTSTP
+	veof: number;    // Default ^D (0x04) → EOF
+	verase: number;  // Default DEL (0x7F) → erase
+}
+
+/** Returns the POSIX-standard default termios: canonical on, echo on, isig on. */
+export function defaultTermios(): Termios {
+	return {
+		icanon: true,
+		echo: true,
+		isig: true,
+		cc: {
+			vintr: 0x03,   // ^C
+			vquit: 0x1c,   // ^\
+			vsusp: 0x1a,   // ^Z
+			veof: 0x04,    // ^D
+			verase: 0x7f,  // DEL
+		},
+	};
 }
 
 // Signals

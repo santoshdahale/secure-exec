@@ -35,10 +35,12 @@ export type {
 	ChildProcessAccessRequest,
 	EnvAccessRequest,
 	KernelErrorCode,
+	Termios,
+	TermiosCC,
 } from "./types.js";
 
-// Structured kernel error
-export { KernelError } from "./types.js";
+// Structured kernel error and termios defaults
+export { KernelError, defaultTermios } from "./types.js";
 
 // VFS types
 export type {
