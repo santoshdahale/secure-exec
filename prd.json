@@ -77,7 +77,7 @@
         "Tests pass"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "P1 — packages/runtime/node/test/driver.test.ts — 'cannot spawn unlimited processes'"
     },
     {

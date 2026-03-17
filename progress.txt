@@ -99,3 +99,13 @@ PRD: ralph/kernel-hardening (46 stories)
   - Spy pattern: wrap the existing MockRuntimeDriver.spawn with a recording layer rather than creating a separate class — keeps mock behavior and adds observability
   - ProcessContext.ppid is the caller's PID (parent), ProcessContext.pid is the spawned child's PID
 ---
+
+## 2026-03-17 - US-005
+- What was implemented: Replaced placeholder "spawning multiple child processes each gets unique kernel PID" test with honest "concurrent child process spawning assigns unique PIDs" test
+- Files changed:
+  - packages/runtime/node/test/driver.test.ts — replaced test: spawns 12 children via spawnSync, spy driver records ctx.pid for each, asserts all 12 PIDs are unique
+- **Learnings for future iterations:**
+  - Reusing the spy driver pattern from US-004 (wrap MockRuntimeDriver.spawn) works well for PID tracking — ctx.pid gives the kernel-assigned child PID
+  - spawnSync is better than execSync for these tests since it doesn't wrap as bash -c
+  - 12 processes is comfortably above the 10+ requirement and fast enough (~314ms for all tests)
+---
