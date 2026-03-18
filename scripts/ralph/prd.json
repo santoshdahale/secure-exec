@@ -2069,7 +2069,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "passes": true,
+      "passes": false,
       "notes": "Yarn classic (v1) uses a hoisted layout similar to npm but with different lockfile format. Depends on US-086 for yarn support.",
       "id": "US-088",
       "priority": 123
@@ -2087,7 +2087,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "passes": true,
+      "passes": false,
       "notes": "Yarn berry with node-modules linker still creates node_modules/ but uses a different internal structure than classic. Depends on US-086.",
       "id": "US-089",
       "priority": 124
@@ -2105,7 +2105,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "passes": true,
+      "passes": false,
       "notes": "Workspace layouts use symlinks between workspace members. Increasingly common (turborepo, nx, etc). Use pnpm or npm workspaces.",
       "id": "US-090",
       "priority": 125
@@ -2205,7 +2205,7 @@
         "Tests pass"
       ],
       "priority": 131,
-      "passes": true,
+      "passes": false,
       "notes": "The InMemoryFileSystem starts nearly empty. brush-shell's ls command goes through WASM -> SharedArrayBuffer RPC -> kernel VFS readdir/stat. The IO error likely comes from missing VFS state, broken RPC handling, or fd_readdir WASI implementation issues. The 'could not retrieve pid for child process' warning is a separate brush-shell issue (proc_spawn return value parsing)."
     },
     {
@@ -2807,6 +2807,25 @@
       "priority": 163,
       "passes": false,
       "notes": "Astro exercises Vite internals, .astro file compilation, partial hydration, and multi-framework component rendering \u2014 all stress points for the sandbox. Depends on Vite compatibility (US-162)."
+    },
+    {
+      "id": "US-164",
+      "title": "Fix secure-exec npm import crash caused by node-stdlib-browser runtime import",
+      "description": "As a developer, I need import { NodeRuntime } from 'secure-exec' to work on Node.js without crashing on a missing mock/empty.js file from node-stdlib-browser.",
+      "acceptanceCriteria": [
+        "Replace runtime import of node-stdlib-browser in module-resolver.ts with a static hardcoded list of stdlib module names",
+        "Comment out @secure-exec/browser and @secure-exec/python re-exports in secure-exec/src/index.ts with TODO markers",
+        "Move @secure-exec/browser and @secure-exec/python to optionalDependencies in packages/secure-exec/package.json",
+        "import { NodeRuntime, createNodeDriver } from 'secure-exec' works without error on Node.js",
+        "import { NodeRuntime, createBrowserDriver } from 'secure-exec/browser' still works as subpath import",
+        "import { PythonRuntime } from 'secure-exec/python' still works as subpath import",
+        "node-stdlib-browser is no longer imported at runtime anywhere in @secure-exec/core",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 164,
+      "passes": false,
+      "notes": "CRITICAL — published 0.1.0-rc.3 is broken. node-stdlib-browser@1.3.1 ESM entry calls require.resolve('./mock/empty.js') which doesn't exist in the published package. Import chain: secure-exec → @secure-exec/browser or /python → @secure-exec/core → module-resolver.ts → node-stdlib-browser → CRASH. Files: packages/secure-exec-core/src/module-resolver.ts, packages/secure-exec/src/index.ts, packages/secure-exec/package.json."
     }
   ]
 }

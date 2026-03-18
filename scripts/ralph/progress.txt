@@ -1730,3 +1730,14 @@ PRD: ralph/kernel-hardening (46 stories)
   - The fixture entry can be in a nested workspace package (e.g., `packages/app/src/index.js`) — the test runner handles this correctly
   - express-pass and fastify-pass fixtures have pre-existing failures — not related to workspace fixture
 ---
+
+## 2026-03-18 - US-087
+- npm flat layout fixture already implemented and committed (269b004)
+- Fixture at packages/secure-exec/tests/projects/npm-layout-pass/ with fixture.json (packageManager: "npm"), package.json (left-pad 0.0.3), package-lock.json (lockfileVersion 3), src/index.js
+- Project-matrix parity test passes — host Node and sandbox produce identical output
+- Typecheck passes, all tests pass
+- Marked passes: true in prd.json (was missed in prior iteration)
+- **Learnings for future iterations:**
+  - npm flat layout creates all deps directly in node_modules/ as real directories (no symlinks, no hardlinks)
+  - package-lock.json lockfileVersion 3 is the current npm format
+---
