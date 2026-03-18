@@ -1640,3 +1640,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - Host bridge global names use `_` prefix convention (e.g. `_networkHttpServerCloseRaw`), classified as "hardened" (non-writable, non-configurable) but still readable by sandbox code
   - Per-context ownership tracking pattern: create a local Set in the bridge-setup closure, add on create, check on close/delete, clean up on success
 ---
+
+## 2026-03-18 - US-117-B
+- Implemented 50MB cap on ClientRequest._body and ServerResponseBridge._chunks buffering to prevent host memory exhaustion
+- Added MAX_HTTP_BODY_BYTES constant (50MB) and byte tracking to both write() methods
+- ClientRequest.write() and ServerResponseBridge.write() now throw ERR_HTTP_BODY_TOO_LARGE when cap exceeded
+- Updated ServerResponseCallable to initialize _chunksBytes for Fastify compat path
+- Protected dispatchServerRequest catch block from double-throw when writing error to capped response
+- Added 3 tests: request body cap, response body cap, normal-sized bodies pass
+- Files changed: packages/secure-exec-core/src/bridge/network.ts, packages/secure-exec/tests/runtime-driver/node/bridge-hardening.test.ts
+- **Learnings for future iterations:**
+  - SSRF protection in createDefaultNetworkAdapter blocks localhost requests — use custom adapter with onRequest dispatch for server handler tests
+  - Server active handles prevent clean exec() completion — sandbox must await server.close() before IIFE ends
+  - When terminate() disposes the isolate, afterEach's proc.dispose() double-disposes — use try/catch in afterEach
+  - Custom adapter httpServerListen can dispatch requests via setTimeout(0) on onRequest callback to trigger server handlers
+---
