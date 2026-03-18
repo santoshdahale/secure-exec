@@ -10,3 +10,6 @@ dev-website:
 build-website:
 	pnpm --filter @secure-exec/website build
 
+release *args:
+	npx tsx scripts/release.ts {{args}}
+
