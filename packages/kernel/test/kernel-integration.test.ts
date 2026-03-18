@@ -587,6 +587,126 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// fdWrite to VFS (regular files)
+	// -----------------------------------------------------------------------
+
+	describe("fdWrite to VFS", () => {
+		it("fdWrite writes data and advances cursor, fdRead reads it back", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+
+			// Create an empty file
+			await vfs.writeFile("/tmp/write-test.txt", "");
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("x", []);
+			const fd = ki.fdOpen(proc.pid, "/tmp/write-test.txt", 2); // O_RDWR
+
+			// Write data
+			const written = await ki.fdWrite(proc.pid, fd, new TextEncoder().encode("hello world"));
+			expect(written).toBe(11);
+
+			// Seek back to start
+			await ki.fdSeek(proc.pid, fd, 0n, 0); // SEEK_SET
+
+			// Read back — data matches
+			const data = await ki.fdRead(proc.pid, fd, 100);
+			expect(new TextDecoder().decode(data)).toBe("hello world");
+
+			// Verify VFS has the data too
+			const vfsContent = await vfs.readFile("/tmp/write-test.txt");
+			expect(new TextDecoder().decode(vfsContent)).toBe("hello world");
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("fdWrite at offset via fdSeek, fdPread at same offset — data matches", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+
+			await vfs.writeFile("/tmp/offset-write.txt", "AAAAAAAAAA"); // 10 bytes
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("x", []);
+			const fd = ki.fdOpen(proc.pid, "/tmp/offset-write.txt", 2); // O_RDWR
+
+			// Seek to offset 5
+			await ki.fdSeek(proc.pid, fd, 5n, 0); // SEEK_SET
+
+			// Write "BBBBB" at offset 5
+			const written = await ki.fdWrite(proc.pid, fd, new TextEncoder().encode("BBBBB"));
+			expect(written).toBe(5);
+
+			// fdPread at offset 5 — should see "BBBBB"
+			const data = await ki.fdPread(proc.pid, fd, 5, 5n);
+			expect(new TextDecoder().decode(data)).toBe("BBBBB");
+
+			// Full file should be "AAAAABBBBB"
+			const full = await vfs.readFile("/tmp/offset-write.txt");
+			expect(new TextDecoder().decode(full)).toBe("AAAAABBBBB");
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("cursor advances correctly across multiple writes", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+
+			await vfs.writeFile("/tmp/multi-write.txt", "");
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("x", []);
+			const fd = ki.fdOpen(proc.pid, "/tmp/multi-write.txt", 2);
+
+			// Write in chunks
+			await ki.fdWrite(proc.pid, fd, new TextEncoder().encode("abc"));
+			await ki.fdWrite(proc.pid, fd, new TextEncoder().encode("def"));
+			await ki.fdWrite(proc.pid, fd, new TextEncoder().encode("ghi"));
+
+			// Verify full content
+			const content = await vfs.readFile("/tmp/multi-write.txt");
+			expect(new TextDecoder().decode(content)).toBe("abcdefghi");
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("fdWrite extends file when writing past end", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+
+			await vfs.writeFile("/tmp/extend.txt", "AB"); // 2 bytes
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("x", []);
+			const fd = ki.fdOpen(proc.pid, "/tmp/extend.txt", 2);
+
+			// Seek past end
+			await ki.fdSeek(proc.pid, fd, 5n, 0); // SEEK_SET
+
+			// Write at offset 5
+			await ki.fdWrite(proc.pid, fd, new TextEncoder().encode("CD"));
+
+			const content = await vfs.readFile("/tmp/extend.txt");
+			expect(content.length).toBe(7);
+			expect(content[0]).toBe(65); // 'A'
+			expect(content[1]).toBe(66); // 'B'
+			// Bytes 2-4 should be zero-filled
+			expect(content[2]).toBe(0);
+			expect(content[3]).toBe(0);
+			expect(content[4]).toBe(0);
+			expect(content[5]).toBe(67); // 'C'
+			expect(content[6]).toBe(68); // 'D'
+
+			proc.kill(9);
+			await proc.wait();
+		});
+	});
+
+	// -----------------------------------------------------------------------
 	// stdin streaming
 	// -----------------------------------------------------------------------
 
