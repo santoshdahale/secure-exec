@@ -331,6 +331,64 @@ describe("shell-terminal", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Concurrent openShell() session isolation
+// ---------------------------------------------------------------------------
+
+describe("concurrent openShell sessions", () => {
+	let harnessA: TerminalHarness;
+	let harnessB: TerminalHarness;
+
+	afterEach(async () => {
+		await harnessA?.dispose();
+		await harnessB?.dispose();
+	});
+
+	it("output isolation — data from shell A never appears in shell B", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+
+		harnessA = new TerminalHarness(kernel);
+		harnessB = new TerminalHarness(kernel);
+
+		await harnessA.waitFor("$");
+		await harnessB.waitFor("$");
+
+		// Send different commands to each shell
+		await harnessA.type("echo ALPHA\n");
+		await harnessB.type("echo BRAVO\n");
+
+		// Shell A has ALPHA, never BRAVO
+		const screenA = harnessA.screenshotTrimmed();
+		expect(screenA).toBe(["$ echo ALPHA", "ALPHA", "$ "].join("\n"));
+
+		// Shell B has BRAVO, never ALPHA
+		const screenB = harnessB.screenshotTrimmed();
+		expect(screenB).toBe(["$ echo BRAVO", "BRAVO", "$ "].join("\n"));
+	});
+
+	it("exit one shell — surviving shell is unaffected", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+
+		harnessA = new TerminalHarness(kernel);
+		harnessB = new TerminalHarness(kernel);
+
+		await harnessA.waitFor("$");
+		await harnessB.waitFor("$");
+
+		// Exit shell A
+		const codeA = await harnessA.exit();
+		expect(codeA).toBe(0);
+
+		// Shell B still works — run a command
+		await harnessB.type("echo STILL_ALIVE\n");
+		expect(harnessB.screenshotTrimmed()).toBe(
+			["$ echo STILL_ALIVE", "STILL_ALIVE", "$ "].join("\n"),
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // readPump lifecycle tests — verify pump is tracked, exits on shell exit,
 // errors are propagated, and wait() drains before resolving.
 // ---------------------------------------------------------------------------
