@@ -450,6 +450,55 @@ describe("PTY adversarial stress", () => {
 	});
 });
 
+describe("PTY signal callback error handling", () => {
+	it("onSignal throw does not crash PTY — subsequent operations still work", async () => {
+		const throwingSignalHandler = () => {
+			throw new Error("signal handler exploded");
+		};
+		const manager = new PtyManager(throwingSignalHandler);
+		const { master, slave } = manager.createPty();
+
+		// Configure canonical + echo + isig (defaults), set foreground pgid
+		manager.setForegroundPgid(master.description.id, 42);
+
+		// Send ^C (0x03) — triggers onSignal which throws, should be caught internally
+		expect(() =>
+			manager.write(master.description.id, new Uint8Array([0x03])),
+		).not.toThrow();
+
+		// PTY still functional — write and read through it
+		manager.write(master.description.id, new Uint8Array([0x41, 0x0a])); // 'A\n'
+		const echo = await manager.read(master.description.id, 1024);
+		expect(echo).toContain(0x41); // 'A' echoed back
+
+		const input = await manager.read(slave.description.id, 1024);
+		expect(input).toContain(0x41); // 'A' delivered to slave
+	});
+
+	it("after failed signal delivery, echo and line discipline continue", async () => {
+		const throwingSignalHandler = () => {
+			throw new Error("boom");
+		};
+		const manager = new PtyManager(throwingSignalHandler);
+		const { master, slave } = manager.createPty();
+
+		manager.setForegroundPgid(master.description.id, 99);
+
+		// Send multiple ^C characters — each should be caught, not accumulate errors
+		const sigBytes = new Uint8Array([0x03, 0x03, 0x03]);
+		expect(() => manager.write(master.description.id, sigBytes)).not.toThrow();
+
+		// Echo still works — write 'B' + newline
+		manager.write(master.description.id, new Uint8Array([0x42, 0x0a])); // 'B\n'
+		const echo = await manager.read(master.description.id, 1024);
+		expect(echo).toContain(0x42);
+
+		// Read from slave — data delivered correctly
+		const data = await manager.read(slave.description.id, 1024);
+		expect(data).toContain(0x42);
+	});
+});
+
 describe("ID counter isolation", () => {
 	it("100 FD descriptions, 100 pipes, 100 PTYs — all IDs unique, no range overlap", () => {
 		const fdManager = new FDTableManager();

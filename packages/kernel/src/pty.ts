@@ -390,7 +390,13 @@ export class PtyManager {
 				const signal = this.signalForByte(state, byte);
 				if (signal !== null) {
 					if (termios.icanon) state.lineBuffer.length = 0;
-					if (state.foregroundPgid > 0) this.onSignal?.(state.foregroundPgid, signal);
+					if (state.foregroundPgid > 0) {
+						try {
+							this.onSignal?.(state.foregroundPgid, signal);
+						} catch {
+							// Signal delivery failure must not break line discipline
+						}
+					}
 					continue;
 				}
 			}
