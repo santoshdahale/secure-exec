@@ -75,6 +75,13 @@ Follow the style in `packages/secure-exec/src/index.ts`.
 - comment tricky ordering/invariants; skip noise
 - add inline comments and doc comments when behavior is non-obvious, especially where runtime/bridge/driver pieces depend on each other
 
+## Landing Page & README Sync
+
+- `README.md` mirrors the landing page (`packages/website/src/pages/index.astro` and its components) 1:1 in content and structure
+- when updating the landing page (hero copy, features, benchmarks, comparison, FAQ, or CTA), update `README.md` to match
+- when updating `README.md`, update the landing page to match
+- the landing page section order is: Hero → Code Example → Why Secure Exec (features) → Benchmarks → Secure Exec vs. Sandboxes → FAQ → CTA → Footer
+
 ## Documentation
 
 - docs pages that must stay current with API changes:

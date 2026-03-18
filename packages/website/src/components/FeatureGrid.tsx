@@ -77,7 +77,7 @@ export function FeatureGrid() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="max-w-xl text-base leading-relaxed text-zinc-500"
           >
-            Give your AI agent the ability to write and run code safely. Works with the Vercel AI SDK, LangChain, and any tool-use framework.
+            Give your AI agent the ability to write and run code safely.
           </motion.p>
         </div>
 

@@ -16,7 +16,7 @@ function InfoTooltip({ children }: { children: React.ReactNode }) {
       >
         <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm1 12H7V7h2v5zm-1-6a1 1 0 110-2 1 1 0 010 2z" />
       </svg>
-      <span className="absolute bottom-full left-0 mb-2 w-72 p-3 rounded-lg bg-zinc-800/95 backdrop-blur-sm text-[11px] text-zinc-300 leading-relaxed shadow-xl border border-zinc-700/50 z-50 opacity-0 pointer-events-none group-hover/tip:opacity-100 group-hover/tip:pointer-events-auto transition-opacity duration-200 [&_a]:text-white [&_a]:underline [&_a]:underline-offset-2">
+      <span className="absolute bottom-full left-0 mb-2 w-80 p-3 rounded-lg bg-zinc-800/95 backdrop-blur-sm text-[11px] text-zinc-300 leading-relaxed shadow-xl border border-zinc-700/50 z-50 opacity-0 pointer-events-none group-hover/tip:opacity-100 group-hover/tip:pointer-events-auto transition-opacity duration-200 [&_a]:text-white [&_a]:underline [&_a]:underline-offset-2 [&_strong]:text-zinc-200 [&_strong]:font-medium">
         {children}
       </span>
     </span>
@@ -41,12 +41,17 @@ function ColdStartChart() {
           <h4 className="text-sm font-medium text-white flex items-center">
             Cold start
             <InfoTooltip>
-            Time to interactive (TTI). Sandbox values use the fastest provider — e2b (best median) from{" "}
-            <a href="https://www.computesdk.com/benchmarks/" target="_blank" rel="noopener noreferrer">
-              ComputeSDK
-            </a>{" "}
-            as of March 2026. Secure Exec measured over 100 iterations × 100 samples.{" "}
-            <a href="/docs/benchmarks">Our benchmarks →</a>
+              <strong>What's measured:</strong> Time from requesting an execution to first code running.
+              <br /><br />
+              <strong>Why the gap:</strong> Secure Exec spins up a V8 isolate inside the host process. No container, no VM, no network hop. Sandboxes must boot an entire container or microVM, allocate memory, and establish a network connection before code can run.
+              <br /><br />
+              <strong>Sandbox baseline:</strong> e2b, the fastest provider on{" "}
+              <a href="https://www.computesdk.com/benchmarks/" target="_blank" rel="noopener noreferrer">ComputeSDK</a>
+              {" "}as of March 18, 2026.
+              <br /><br />
+              <strong>Secure Exec:</strong> Median of 10,000 runs (100 iterations × 100 samples) on Intel i7-12700KF.
+              <br /><br />
+              <a href="/docs/benchmarks">Our benchmarks →</a>
             </InfoTooltip>
           </h4>
           <p className="text-[11px] text-zinc-600 italic mt-1">Lower is better</p>
@@ -202,8 +207,14 @@ function CostChart() {
           <h4 className="text-sm font-medium text-white flex items-center">
             Cost per execution-second
             <InfoTooltip>
-              Sandbox value uses the cheapest provider — Cloudflare Containers (256 MB min, billed per second at $0.0000025/GiB·s) as of March 2026.
-              Secure Exec: 3.4 MB baseline (p95) with 30% empty capacity assumed across self-hosted hardware tiers.{" "}
+              <strong>What's measured:</strong> <code className="text-[10px] bg-white/10 px-1 py-0.5 rounded">server price per second ÷ concurrent executions per server</code>
+              <br /><br />
+              <strong>Why it's cheaper:</strong> Each execution uses ~3.4 MB instead of a 256 MB container minimum. And you run on your own hardware, which is significantly cheaper than per-second sandbox billing.
+              <br /><br />
+              <strong>Sandbox baseline:</strong> Cloudflare Containers, the cheapest sandbox provider benchmarked. Billed at $0.0000025/GiB·s with a 256 MB minimum (March 18, 2026).
+              <br /><br />
+              <strong>Secure Exec:</strong> 3.4 MB baseline per execution, assuming 70% utilization. Select a hardware tier above to compare.
+              <br /><br />
               <a href="/docs/benchmarks">Our benchmarks →</a>
               {" · "}
               <a href="/docs/cost-evaluation">Full cost breakdown →</a>
@@ -294,7 +305,7 @@ export function Benchmarks() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="max-w-xl text-base leading-relaxed text-zinc-500"
           >
-            V8 isolates vs. container-based sandboxes.
+            V8 isolates vs. sandboxes.
           </motion.p>
         </div>
 
@@ -316,8 +327,16 @@ export function Benchmarks() {
             label="Memory per instance"
             tooltip={
               <>
-                Secure Exec memory is the converged at-scale average per execution.
-                Sandbox value uses the smallest minimum among popular providers (e2b, Daytona, Modal, Cloudflare) as of March 2026 — 256 MB for Modal and Cloudflare.{" "}
+                <strong>What's measured:</strong> Memory footprint added per concurrent execution.
+                <br /><br />
+                <strong>Why the gap:</strong> V8 isolates share the host process and its V8 engine. Each additional execution only adds its own heap and stack (~3.4 MB). Sandboxes allocate a dedicated container with a minimum memory reservation, even if the code inside uses far less.
+                <br /><br />
+                <strong>What this means:</strong> On a 1 GB server, you can run ~210 concurrent Secure Exec executions vs. ~4 sandboxes.
+                <br /><br />
+                <strong>Sandbox baseline:</strong> 256 MB, the smallest minimum among popular providers (Modal, Cloudflare Containers) as of March 18, 2026.
+                <br /><br />
+                <strong>Secure Exec:</strong> 3.4 MB, the converged average per execution under sustained load.
+                <br /><br />
                 <a href="/docs/benchmarks">Our benchmarks →</a>
               </>
             }
@@ -332,23 +351,6 @@ export function Benchmarks() {
           <CostChart />
         </motion.div>
 
-        <motion.p
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="mt-4 text-xs text-zinc-600"
-        >
-          Sandbox provider numbers based on published documentation and benchmarks.
-          Secure Exec measured on Intel i7-12700KF, Node.js v24.{" "}
-          <a href="/docs/benchmarks" className="underline underline-offset-2 hover:text-zinc-500">
-            Methodology →
-          </a>
-          {" · "}
-          <a href="/docs/cost-evaluation" className="underline underline-offset-2 hover:text-zinc-500">
-            Cost breakdown →
-          </a>
-        </motion.p>
       </div>
     </section>
   );
