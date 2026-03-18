@@ -1271,3 +1271,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - Shell output must use `\r\n` for line breaks since the kernel has no ONLCR output processing — programs are responsible for CR+LF in their PTY output
   - MockShellDriver pattern: async REPL loop reading from stdin FD, dispatching simple commands, writing prompt — reusable for US-082 signal/backspace tests
 ---
+
+## 2026-03-17 - US-082
+- Added 6 kernel PTY terminal tests: ^C/SIGINT, ^D/exit, backspace, line wrapping, SIGWINCH/resize, echo disabled
+- Enhanced MockShellDriver: SIGINT writes "^C\r\n$ " and continues, SIGWINCH ignored, added "noecho" command for echo disable
+- Files changed: `packages/kernel/test/shell-terminal.test.ts`
+- **Learnings for future iterations:**
+  - PTY signal chars (^C) are NOT echoed by the line discipline — the mock shell's kill() handler writes "^C\r\n$ " to simulate real shell behavior
+  - `processTable.kill(-pgid, signal)` calls `driverProcess.kill(signal)` — driver decides whether to exit or survive (bash ignores SIGINT, continues with new prompt)
+  - For line wrapping tests, use small terminal cols (e.g., 20) — prompt "$ " takes 2 chars, remaining cols determine wrap point
+  - Echo disabled via `ki.ptySetDiscipline(pid, fd, { echo: false })` — canonical mode still buffers input, just doesn't echo; output from shell (fdWrite to slave) still appears
+  - `harness.term.resize()` changes xterm viewport; `harness.shell.resize()` delivers SIGWINCH via kernel — both needed for resize tests
+---
