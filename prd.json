@@ -1005,7 +1005,7 @@
         "Tests pass"
       ],
       "priority": 59,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 3. Browser worker has its own execution loop (eval + sucrase), never imports isolated-vm. Worker is expected to be bundled \u2014 cross-package imports are transparent to bundlers."
     },
     {

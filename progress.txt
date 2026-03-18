@@ -3,6 +3,7 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- @secure-exec/browser package at packages/secure-exec-browser/ owns browser Web Worker runtime (driver.ts, runtime-driver.ts, worker.ts, worker-protocol.ts) — deps: @secure-exec/core, sucrase
 - @secure-exec/node package at packages/secure-exec-node/ owns V8-specific execution engine (execution.ts, isolate.ts, bridge-loader.ts, polyfills.ts) — deps: @secure-exec/core, isolated-vm, esbuild, node-stdlib-browser
 - @secure-exec/core package at packages/secure-exec-core/ owns shared types, utilities, bridge guest code, generated sources, and build scripts — build it first (turbo ^build handles this)
 - When adding exports to shared modules in core, update BOTH core/src/index.ts AND the corresponding re-export file in secure-exec/src/shared/
@@ -974,4 +975,22 @@ PRD: ralph/kernel-hardening (46 stories)
   - @secure-exec/core exports all shared types (CommandExecutor, VirtualFileSystem) and permissions (allowAllChildProcess) — use it for type-only and utility imports
   - @secure-exec/node exports V8-specific code (NodeExecutionDriver, createNodeDriver) — use it for execution engine imports
   - pnpm install (without --frozen-lockfile) is needed when changing workspace dependencies
+---
+
+## 2026-03-17 - US-059
+- Created @secure-exec/browser package at packages/secure-exec-browser/
+- Moved browser/driver.ts, browser/runtime-driver.ts, browser/worker.ts, browser/worker-protocol.ts to new package
+- Updated all imports in moved files from relative paths (../shared/*, ../types.js, ../bridge/index.js, ../package-bundler.js, ../fs-helpers.js) to @secure-exec/core
+- Added ./internal/bridge subpath export to @secure-exec/core for browser worker bridge loading
+- Updated secure-exec barrel ./browser subpath (browser-runtime.ts) to re-export from @secure-exec/browser + @secure-exec/core
+- Updated secure-exec/src/index.ts to re-export from @secure-exec/browser
+- Kept thin worker.ts proxy in secure-exec/src/browser/ for browser test URL compatibility
+- Updated injection-policy test to read browser worker source from @secure-exec/browser package
+- Files changed: packages/secure-exec-browser/ (new), packages/secure-exec-core/package.json, packages/secure-exec/package.json, packages/secure-exec/src/browser-runtime.ts, packages/secure-exec/src/browser/index.ts, packages/secure-exec/src/browser/worker.ts, packages/secure-exec/src/index.ts, packages/secure-exec/tests/isolate-runtime-injection-policy.test.ts
+- **Learnings for future iterations:**
+  - @secure-exec/browser package at packages/secure-exec-browser/ owns browser Web Worker runtime (driver.ts, runtime-driver.ts, worker.ts, worker-protocol.ts) — deps: @secure-exec/core, sucrase
+  - Browser worker bridge loading uses dynamic import of @secure-exec/core/internal/bridge (not relative path)
+  - Source-grep tests that check browser worker source must use readBrowserSource() to read from @secure-exec/browser
+  - Browser test worker URL still references secure-exec/src/browser/worker.ts (thin proxy that imports @secure-exec/browser/internal/worker)
+  - Kernel integration tests (bridge-child-process, cross-runtime-pipes, e2e-*) fail without WASM binary — pre-existing, not related to package extraction
 ---
