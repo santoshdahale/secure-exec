@@ -1198,7 +1198,8 @@ class ServerResponseBridge {
     this._headers.delete(name.toLowerCase());
   }
 
-  write(chunk: string | Uint8Array): boolean {
+  write(chunk: string | Uint8Array | null): boolean {
+    if (chunk == null) return true;
     this.headersSent = true;
     if (typeof chunk === "string") {
       this._chunks.push(Buffer.from(chunk));
@@ -1208,8 +1209,8 @@ class ServerResponseBridge {
     return true;
   }
 
-  end(chunk?: string | Uint8Array): this {
-    if (chunk !== undefined) {
+  end(chunk?: string | Uint8Array | null): this {
+    if (chunk != null) {
       this.write(chunk);
     }
     this._finalize();

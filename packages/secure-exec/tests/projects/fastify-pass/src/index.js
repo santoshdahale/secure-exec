@@ -43,16 +43,8 @@ function request(method, path, port, options) {
 }
 
 async function main() {
-	await app.ready();
-
-	const server = http.createServer((req, res) => {
-		// Ensure Fastify has access to connection info it needs
-		if (!req.connection) req.connection = req.socket;
-		app.routing(req, res);
-	});
-
-	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-	const port = server.address().port;
+	await app.listen({ port: 0, host: "127.0.0.1" });
+	const port = app.server.address().port;
 
 	try {
 		const results = [];
@@ -74,7 +66,6 @@ async function main() {
 
 		console.log(JSON.stringify(results));
 	} finally {
-		await new Promise((resolve) => server.close(resolve));
 		await app.close();
 	}
 }
