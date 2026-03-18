@@ -45,6 +45,28 @@ import {
 } from "./isolate-bootstrap.js";
 import type { DriverDeps } from "./isolate-bootstrap.js";
 
+// Env vars that could hijack child processes (library injection, node flags)
+const DANGEROUS_ENV_KEYS = new Set([
+	"LD_PRELOAD",
+	"LD_LIBRARY_PATH",
+	"NODE_OPTIONS",
+	"DYLD_INSERT_LIBRARIES",
+]);
+
+/** Strip env vars that allow library injection or node flag smuggling. */
+function stripDangerousEnv(
+	env: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+	if (!env) return env;
+	const result: Record<string, string> = {};
+	for (const [key, value] of Object.entries(env)) {
+		if (!DANGEROUS_ENV_KEYS.has(key)) {
+			result[key] = value;
+		}
+	}
+	return result;
+}
+
 type BridgeDeps = Pick<
 	DriverDeps,
 	| "filesystem"
@@ -459,7 +481,7 @@ export async function setupRequire(
 
 				const proc = executor.spawn(command, args, {
 					cwd: options.cwd,
-					env: options.env,
+					env: stripDangerousEnv(options.env),
 					onStdout: (data) => {
 						getDispatchRef().applySync(
 							undefined,
@@ -539,7 +561,7 @@ export async function setupRequire(
 
 				const proc = executor.spawn(command, args, {
 					cwd: options.cwd,
-					env: options.env,
+					env: stripDangerousEnv(options.env),
 					onStdout: (data) => {
 						if (maxBufferExceeded) return;
 						stdoutBytes += data.length;

@@ -1485,3 +1485,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - Integration-level PTY tests use ki.fdWrite/ki.fdRead (kernel interface), not ptyManager.write/read directly
   - Output buffer fills via slave write (slave→master direction); echo goes in the same direction, so echo is blocked when output buffer is full
 ---
+
+## 2026-03-18 - US-109
+- What was implemented: Filter dangerous env vars (LD_PRELOAD, NODE_OPTIONS, LD_LIBRARY_PATH, DYLD_INSERT_LIBRARIES) from child process spawn env in bridge-setup.ts
+- Files changed:
+  - packages/secure-exec-node/src/bridge-setup.ts — added stripDangerousEnv() function applied to both spawnStartRef and spawnSyncRef env passthrough
+  - packages/secure-exec/tests/runtime-driver/node/env-leakage.test.ts — added 3 tests: LD_PRELOAD stripped, NODE_OPTIONS stripped, normal env vars pass through
+  - scripts/ralph/prd.json — marked US-109 as passes: true
+- **Learnings for future iterations:**
+  - Bridge-setup.ts has two separate spawn paths (spawnStartRef for async spawn, spawnSyncRef for execSync/spawnSync) — both must be updated for any env/security changes
+  - Mock command executor pattern (createCapturingExecutor) captures spawn args/env without needing real child processes — useful for bridge-level security tests
+  - filterEnv in permissions.ts is permission-based filtering; dangerous env var stripping is a separate concern applied at the bridge boundary
+---

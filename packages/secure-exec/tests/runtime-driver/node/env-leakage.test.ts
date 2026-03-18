@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { allowAllEnv } from "../../../src/index.js";
+import { allowAllEnv, allowAllChildProcess } from "../../../src/index.js";
 import { createTestNodeRuntime } from "../../test-utils.js";
-import type { NodeRuntime } from "../../../src/index.js";
+import type { NodeRuntime, CommandExecutor } from "../../../src/index.js";
+import type { SpawnedProcess } from "../../../src/types.js";
 
 type CapturedConsoleEvent = {
 	channel: "stdout" | "stderr";
@@ -103,5 +104,80 @@ describe("runtime driver specific: node env leakage", () => {
 		expect(parsed.path).toBe(process.env.PATH ?? "/usr/bin");
 		expect(parsed.home).toBe(process.env.HOME ?? "/root");
 		expect(parsed.marker).toBe("env-positive-control");
+	});
+
+	// ---------------------------------------------------------------
+	// Dangerous env var filtering for child process spawn
+	// ---------------------------------------------------------------
+
+	function createCapturingExecutor() {
+		const calls: { command: string; args: string[]; env?: Record<string, string> }[] = [];
+		const executor: CommandExecutor = {
+			spawn(command, args, options): SpawnedProcess {
+				calls.push({ command, args, env: options?.env });
+				return {
+					writeStdin: () => {},
+					closeStdin: () => {},
+					kill: () => {},
+					wait: () => Promise.resolve(0),
+				};
+			},
+		};
+		return { executor, calls };
+	}
+
+	it("strips LD_PRELOAD from child process spawn env", async () => {
+		const { executor, calls } = createCapturingExecutor();
+		proc = createTestNodeRuntime({
+			permissions: { ...allowAllChildProcess },
+			commandExecutor: executor,
+		});
+		await proc.run(`
+			const cp = require('child_process');
+			cp.spawnSync('echo', ['hi'], {
+				env: { LD_PRELOAD: '/evil/lib.so', SAFE_VAR: 'ok' },
+			});
+		`);
+		expect(calls.length).toBe(1);
+		expect(calls[0].env).toBeDefined();
+		expect(calls[0].env!.LD_PRELOAD).toBeUndefined();
+		expect(calls[0].env!.SAFE_VAR).toBe("ok");
+	});
+
+	it("strips NODE_OPTIONS from child process spawn env", async () => {
+		const { executor, calls } = createCapturingExecutor();
+		proc = createTestNodeRuntime({
+			permissions: { ...allowAllChildProcess },
+			commandExecutor: executor,
+		});
+		await proc.run(`
+			const cp = require('child_process');
+			cp.spawnSync('echo', ['hi'], {
+				env: { NODE_OPTIONS: '--require=evil.js', PATH: '/usr/bin' },
+			});
+		`);
+		expect(calls.length).toBe(1);
+		expect(calls[0].env!.NODE_OPTIONS).toBeUndefined();
+		expect(calls[0].env!.PATH).toBe("/usr/bin");
+	});
+
+	it("normal env vars pass through child process spawn correctly", async () => {
+		const { executor, calls } = createCapturingExecutor();
+		proc = createTestNodeRuntime({
+			permissions: { ...allowAllChildProcess },
+			commandExecutor: executor,
+		});
+		await proc.run(`
+			const cp = require('child_process');
+			cp.spawnSync('echo', ['hi'], {
+				env: { PATH: '/usr/bin', HOME: '/home/test', CUSTOM: 'value' },
+			});
+		`);
+		expect(calls.length).toBe(1);
+		expect(calls[0].env).toEqual({
+			PATH: "/usr/bin",
+			HOME: "/home/test",
+			CUSTOM: "value",
+		});
 	});
 });
