@@ -2035,3 +2035,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - Many hardening stories were implemented in earlier iterations without marking passes:true — always batch-verify
   - Security test files are well-organized by domain: env-leakage, ssrf-protection, bridge-hardening, sandbox-escape, payload-limits, maxbuffer
 ---
+
+## 2026-03-18 - US-151
+- Implemented permission callback source validation to prevent code injection via new Function()
+- Created permission-validation.ts with validatePermissionSource() — checks source is a function expression and blocks dangerous patterns (eval, Function, import, require, globalThis, self, window, process, fetch, WebSocket, etc.)
+- Updated worker.ts revivePermission() to validate source before new Function() call — invalid source returns undefined (permission denied)
+- Added 30 tests covering normal callbacks (arrow, regular, named, multi-param) and 17 injection patterns
+- Files changed: packages/secure-exec-browser/src/permission-validation.ts (new), packages/secure-exec-browser/src/worker.ts, packages/secure-exec-browser/package.json, packages/secure-exec/tests/runtime-driver/browser/permission-validation.test.ts (new)
+- **Learnings for future iterations:**
+  - Browser worker.ts has side effects (self.onmessage assignment) — can't import directly in Node.js tests; extract pure logic to separate files
+  - Permission validation tests run in Node.js since they test pure string validation, not Worker APIs
+  - Pattern: export testable logic from browser package via ./internal/* exports in package.json
+---
