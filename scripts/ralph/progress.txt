@@ -2175,3 +2175,24 @@ PRD: ralph/kernel-hardening (46 stories)
   - @astrojs/react integration required for React island components; astro.config.mjs must import and register it
   - e2e-project-matrix kernel tests still globally broken (23/24 fail) — same pre-existing issue as US-162
 ---
+
+## 2026-03-18 - US-164
+- Replaced runtime `import stdLibBrowser from "node-stdlib-browser"` in core's module-resolver.ts with a static `STDLIB_BROWSER_MODULES` Set of 40 module names
+- Commented out `@secure-exec/browser` and `@secure-exec/python` re-exports in secure-exec/src/index.ts with TODO markers
+- Moved `@secure-exec/browser` and `@secure-exec/python` from dependencies to optionalDependencies in secure-exec/package.json
+- Added `./python` subpath export to secure-exec/package.json
+- Updated test imports to get `createPyodideRuntimeDriverFactory` from `@secure-exec/python` directly
+- Files changed:
+  - packages/secure-exec-core/src/module-resolver.ts — replaced node-stdlib-browser import with static Set
+  - packages/secure-exec/src/index.ts — commented out browser/python re-exports
+  - packages/secure-exec/package.json — moved deps, added ./python subpath
+  - packages/secure-exec/tests/runtime-driver/python/runtime.test.ts — import from @secure-exec/python
+  - packages/secure-exec/tests/test-suite/python.test.ts — dynamic import from @secure-exec/python
+  - scripts/ralph/prd.json — marked US-164 passes: true
+- **Learnings for future iterations:**
+  - node-stdlib-browser@1.3.1 ESM entry crashes with missing mock/empty.js — never import it at runtime, use static lists
+  - node-stdlib-browser has 40 modules (all with polyfills, none null) in v1.3.1
+  - Build scripts (.mjs in scripts/) can still import node-stdlib-browser since they run via `node` directly
+  - `@secure-exec/python` has no cyclic dependency with `secure-exec` (only depends on core), so direct imports from it are safe
+  - 3 pre-existing test failures in node runtime driver (http2, https, upgrade) are unrelated to this change
+---
