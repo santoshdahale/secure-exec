@@ -1681,7 +1681,7 @@
         "Tests pass"
       ],
       "priority": 99,
-      "passes": false,
+      "passes": true,
       "notes": "MEDIUM — kernel.ts:487-494. Every fdRead calls vfs.readFile (full file), slices to range. 1-byte read of 1GB file allocates 1GB."
     },
     {

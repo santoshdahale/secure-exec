@@ -1384,3 +1384,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - `__unsafeCreateContext` requires absolute paths for require() — relative paths fail because filename is synthetic
   - Module caches on `deps` must be cleared in BOTH `executeWithRuntime` and `__unsafeCreateContext`
 ---
+
+## 2026-03-18 - US-134
+- Added `pread(path, offset, length)` method to kernel VirtualFileSystem interface for range-based reads
+- Updated fdRead in kernel.ts to use pread instead of readFile+slice — avoids loading entire file for partial reads
+- Implemented pread in all kernel VFS implementations: TestFileSystem, NodeFileSystem (os/node), InMemoryFileSystem (os/browser)
+- Updated device-layer.ts to handle pread for device nodes (/dev/null, /dev/zero, /dev/urandom)
+- Updated permissions.ts to wrap pread with "read" permission check
+- Added 2 tests: 1MB file single-byte read, sequential cursor advancement
+- Files changed:
+  - packages/kernel/src/vfs.ts — added pread to interface
+  - packages/kernel/src/kernel.ts — fdRead now uses pread
+  - packages/kernel/src/device-layer.ts — pread wrapper for device nodes
+  - packages/kernel/src/permissions.ts — pread permission check
+  - packages/kernel/test/helpers.ts — TestFileSystem.pread
+  - packages/os/node/src/filesystem.ts — NodeFileSystem.pread (uses fs.open + handle.read for true partial read)
+  - packages/os/browser/src/filesystem.ts — InMemoryFileSystem.pread
+  - packages/kernel/test/kernel-integration.test.ts — 2 new tests
+- **Learnings for future iterations:**
+  - Kernel VFS (packages/kernel/src/vfs.ts) is separate from core VFS (packages/secure-exec-core/src/types.ts) — only kernel VFS implementations need updating for kernel-only methods
+  - Only 3 classes implement kernel VFS: TestFileSystem (kernel tests), NodeFileSystem (os/node), InMemoryFileSystem (os/browser)
+  - NodeFileSystem.pread uses fs.open() + handle.read(buf, 0, length, offset) for true OS-level positional read
+  - device-layer pread for /dev/zero returns exactly `length` zero bytes (unlike readFile which returns fixed 4096)
+---
