@@ -20,12 +20,14 @@ import type {
 import {
   NodeExecutionDriver,
   createNodeDriver,
+} from '@secure-exec/node';
+import {
   allowAllChildProcess,
-} from 'secure-exec';
+} from '@secure-exec/core';
 import type {
   CommandExecutor,
   VirtualFileSystem,
-} from 'secure-exec';
+} from '@secure-exec/core';
 
 export interface NodeRuntimeOptions {
   /** Memory limit in MB for each V8 isolate (default: 128). */

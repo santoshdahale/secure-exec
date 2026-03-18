@@ -14,8 +14,9 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
+    "@secure-exec/core": "workspace:*",
     "@secure-exec/kernel": "workspace:*",
-    "secure-exec": "workspace:*"
+    "@secure-exec/node": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

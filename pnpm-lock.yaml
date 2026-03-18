@@ -131,12 +131,15 @@ importers:
 
   packages/runtime/node:
     dependencies:
+      '@secure-exec/core':
+        specifier: workspace:*
+        version: link:../../secure-exec-core
       '@secure-exec/kernel':
         specifier: workspace:*
         version: link:../../kernel
-      secure-exec:
+      '@secure-exec/node':
         specifier: workspace:*
-        version: link:../../secure-exec
+        version: link:../../secure-exec-node
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
