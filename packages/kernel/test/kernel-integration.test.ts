@@ -8,6 +8,7 @@ import {
 import type { Kernel, Permissions } from "../src/types.js";
 import { FILETYPE_PIPE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
 import { filterEnv, wrapFileSystem } from "../src/permissions.js";
+import { MAX_CANON } from "../src/pty.js";
 
 describe("kernel + MockRuntimeDriver integration", () => {
 	let kernel: Kernel;
@@ -2441,6 +2442,65 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			expect(killSignals).toContain(2); // SIGINT delivered
 
 			parent.kill();
+		});
+
+		it("canonical mode line buffer capped at MAX_CANON — excess bytes discarded", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { masterFd, slaveFd } = ki.openpty(proc.pid);
+
+			ki.ptySetDiscipline(proc.pid, masterFd, { canonical: true, echo: false });
+
+			// Write 10,000 bytes without newline — should be capped at MAX_CANON
+			const bigInput = new Uint8Array(10_000).fill(0x41); // 'A' repeated
+			ki.fdWrite(proc.pid, masterFd, bigInput);
+
+			// Flush with newline
+			ki.fdWrite(proc.pid, masterFd, new Uint8Array([0x0a]));
+
+			const data = await ki.fdRead(proc.pid, slaveFd, 16_384);
+			// Line should be MAX_CANON chars + 1 newline
+			expect(data.length).toBe(MAX_CANON + 1);
+			expect(data[data.length - 1]).toBe(0x0a);
+
+			proc.kill();
+		});
+
+		it("canonical mode normal operation still works after cap enforcement", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { masterFd, slaveFd } = ki.openpty(proc.pid);
+
+			ki.ptySetDiscipline(proc.pid, masterFd, { canonical: true, echo: false });
+
+			// Normal short line
+			ki.fdWrite(proc.pid, masterFd, new TextEncoder().encode("hello world\n"));
+			const data1 = await ki.fdRead(proc.pid, slaveFd, 1024);
+			expect(new TextDecoder().decode(data1)).toBe("hello world\n");
+
+			// Second line after cap-length input on a prior write
+			const bigInput = new Uint8Array(MAX_CANON + 500).fill(0x42); // 'B' repeated
+			ki.fdWrite(proc.pid, masterFd, bigInput);
+			ki.fdWrite(proc.pid, masterFd, new Uint8Array([0x0a]));
+			const data2 = await ki.fdRead(proc.pid, slaveFd, 16_384);
+			expect(data2.length).toBe(MAX_CANON + 1);
+
+			// Third line — normal operation resumes after buffer was capped and flushed
+			ki.fdWrite(proc.pid, masterFd, new TextEncoder().encode("ok\n"));
+			const data3 = await ki.fdRead(proc.pid, slaveFd, 1024);
+			expect(new TextDecoder().decode(data3)).toBe("ok\n");
+
+			proc.kill();
 		});
 	});
 

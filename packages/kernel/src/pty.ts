@@ -55,6 +55,9 @@ interface PtyState {
 /** Maximum buffered bytes per PTY direction before writes are rejected (EAGAIN). */
 export const MAX_PTY_BUFFER_BYTES = 65_536; // 64 KB
 
+/** Maximum canonical-mode line buffer size (POSIX MAX_CANON). */
+export const MAX_CANON = 4096;
+
 let nextPtyId = 0;
 let nextPtyDescId = 200_000; // High range to avoid FD/pipe ID collisions
 
@@ -408,7 +411,8 @@ export class PtyManager {
 					continue;
 				}
 
-				// Regular char: buffer
+				// Regular char: buffer (capped at MAX_CANON to prevent unbounded growth)
+				if (state.lineBuffer.length >= MAX_CANON) continue;
 				state.lineBuffer.push(byte);
 				if (termios.echo) this.echoOutput(state, new Uint8Array([byte]));
 			} else {
