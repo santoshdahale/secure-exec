@@ -126,6 +126,7 @@ async function prepareFixtureProject(fixture: FixtureProject): Promise<PreparedF
     cwd: staging,
     timeout: COMMAND_TIMEOUT_MS,
     maxBuffer: 10 * 1024 * 1024,
+    ...(pm === 'yarn' && { env: yarnEnv }),
   });
   await writeFile(path.join(staging, CACHE_READY_MARKER), `${new Date().toISOString()}\n`);
 
@@ -225,11 +226,14 @@ function getBunVersion(): Promise<string> {
 }
 
 let _yarnVersionPromise: Promise<string> | undefined;
+// Bypass corepack packageManager enforcement so yarn runs in a pnpm workspace.
+const yarnEnv = { ...process.env, COREPACK_ENABLE_STRICT: '0' };
 function getYarnVersion(): Promise<string> {
   if (!_yarnVersionPromise) {
     _yarnVersionPromise = execFileAsync('yarn', ['--version'], {
       cwd: WORKSPACE_ROOT,
       timeout: COMMAND_TIMEOUT_MS,
+      env: yarnEnv,
     }).then((r) => r.stdout.trim());
   }
   return _yarnVersionPromise;
