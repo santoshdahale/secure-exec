@@ -938,7 +938,7 @@
         "All tests pass"
       ],
       "priority": 55,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 1d \u2014 final core story. The internal/ prefix signals these are not stable public API. Runtime packages use them but external consumers should not."
     },
     {

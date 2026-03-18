@@ -900,3 +900,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - Re-export pattern: replace moved file with `export { X } from "@secure-exec/core"` — all consumers using relative imports from secure-exec keep working unchanged
   - Existing consumers in node/, browser/, tests/ that import `../module-resolver.js` etc. don't need changes since the re-export files forward to core
 ---
+
+## 2026-03-17 - US-055
+- What was implemented
+  - Added subpath exports to @secure-exec/core package.json with `./internal/*` prefix convention
+  - Subpaths cover all root-level modules (bridge-setup, esm-compiler, fs-helpers, module-resolver, package-bundler, runtime, python-runtime, runtime-driver, types), generated modules (isolate-runtime, polyfills), and shared/* wildcard
+  - Each subpath export includes types, import, and default conditions
+  - Skipped bridge-loader subpath since it hasn't been moved to core yet (still in secure-exec)
+- Files changed
+  - packages/secure-exec-core/package.json — added 12 internal subpath exports + shared/* wildcard
+  - prd.json — marked US-055 as passes: true
+- **Learnings for future iterations:**
+  - Subpath exports with `types` condition require matching `.d.ts` files in dist — tsc already generates these when `declaration: true`
+  - Wildcard subpath exports (`./internal/shared/*`) map to `./dist/shared/*.js` — Node resolves the `*` placeholder
+  - `./internal/` prefix is a convention signal, not enforced — runtime packages can import but external consumers should not
+  - bridge-loader.ts is in secure-exec (not core) — future stories (US-056) will move it to @secure-exec/node
+  - Pre-existing WasmVM/kernel test failures are unrelated to package config changes — they require the WASM binary built locally
+---
