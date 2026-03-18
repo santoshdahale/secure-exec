@@ -77,6 +77,9 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.3
+      '@xterm/headless':
+        specifier: ^6.0.0
+        version: 6.0.0
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -2526,6 +2529,10 @@ packages:
       '@vitest/pretty-format': 2.1.9
       loupe: 3.2.1
       tinyrainbow: 1.2.0
+    dev: true
+
+  /@xterm/headless@6.0.0:
+    resolution: {integrity: sha512-5Yj1QINYCyzrZtf8OFIHi47iQtI+0qYFPHmouEfG8dHNxbZ9Tb9YGSuLcsEwj9Z+OL75GJqPyJbyoFer80a2Hw==}
     dev: true
 
   /acorn@8.15.0:
