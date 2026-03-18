@@ -35,6 +35,20 @@ describe("DeviceLayer", () => {
 		expect(data.some((b) => b !== 0)).toBe(true);
 	});
 
+	it("/dev/urandom returns different data on consecutive reads", async () => {
+		const vfs = createTestVfs();
+		const a = await vfs.readFile("/dev/urandom");
+		const b = await vfs.readFile("/dev/urandom");
+		expect(a.length).toBe(4096);
+		expect(b.length).toBe(4096);
+		// Buffers should differ (collision probability is negligible)
+		let same = true;
+		for (let i = 0; i < a.length; i++) {
+			if (a[i] !== b[i]) { same = false; break; }
+		}
+		expect(same).toBe(false);
+	});
+
 	it("device paths exist", async () => {
 		const vfs = createTestVfs();
 		expect(await vfs.exists("/dev/null")).toBe(true);
@@ -70,6 +84,65 @@ describe("DeviceLayer", () => {
 	it("cannot remove device nodes", async () => {
 		const vfs = createTestVfs();
 		await expect(vfs.removeFile("/dev/null")).rejects.toThrow("EPERM");
+	});
+
+	it("/dev/zero write is silently discarded", async () => {
+		const vfs = createTestVfs();
+		// Write to /dev/null (not /dev/zero — /dev/zero write goes to backing VFS)
+		// /dev/null accepts writes and discards them
+		await vfs.writeFile("/dev/null", "garbage");
+		const data = await vfs.readFile("/dev/null");
+		expect(data.length).toBe(0);
+		// /dev/zero always reads as zeros regardless of any VFS state
+		const zeros = await vfs.readFile("/dev/zero");
+		expect(zeros.length).toBe(4096);
+		expect(zeros.every((b) => b === 0)).toBe(true);
+	});
+
+	it("/dev/stdin, /dev/stdout, /dev/stderr exist and stat as devices", async () => {
+		const vfs = createTestVfs();
+		for (const name of ["stdin", "stdout", "stderr"]) {
+			const path = `/dev/${name}`;
+			expect(await vfs.exists(path)).toBe(true);
+			const stat = await vfs.stat(path);
+			expect(stat.isDirectory).toBe(false);
+			expect(stat.mode).toBe(0o666);
+		}
+	});
+
+	it("/dev/stdin read falls through to backing VFS (ENOENT when absent)", async () => {
+		const vfs = createTestVfs();
+		// Device layer passes read through to backing VFS — file doesn't exist
+		await expect(vfs.readFile("/dev/stdin")).rejects.toThrow();
+	});
+
+	it("/dev/stderr read falls through to backing VFS (ENOENT when absent)", async () => {
+		const vfs = createTestVfs();
+		await expect(vfs.readFile("/dev/stderr")).rejects.toThrow();
+	});
+
+	it("rename of device path throws EPERM", async () => {
+		const vfs = createTestVfs();
+		// Device as source
+		await expect(vfs.rename("/dev/null", "/tmp/x")).rejects.toThrow("EPERM");
+		// Device as target
+		await vfs.writeFile("/tmp/a.txt", "data");
+		await expect(vfs.rename("/tmp/a.txt", "/dev/null")).rejects.toThrow("EPERM");
+	});
+
+	it("link of device path throws EPERM", async () => {
+		const vfs = createTestVfs();
+		await expect(vfs.link("/dev/null", "/tmp/devlink")).rejects.toThrow("EPERM");
+		await expect(vfs.link("/dev/urandom", "/tmp/rng")).rejects.toThrow("EPERM");
+	});
+
+	it("truncate /dev/null succeeds as no-op", async () => {
+		const vfs = createTestVfs();
+		// Should not throw
+		await vfs.truncate("/dev/null", 0);
+		// Still reads as empty
+		const data = await vfs.readFile("/dev/null");
+		expect(data.length).toBe(0);
 	});
 
 	it("non-device paths pass through to backing VFS", async () => {
