@@ -1449,7 +1449,7 @@
         "Tests pass"
       ],
       "priority": 85,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL \u2014 kernel.ts:162-175. Timed-out process keeps running, stdout/stderr keep accumulating, timer never cleared on normal exit."
     },
     {

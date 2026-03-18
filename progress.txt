@@ -1371,3 +1371,12 @@ PRD: ralph/kernel-hardening (46 stories)
   - Async KernelInterface methods (waitpid) that previously returned rejected Promises need assertOwns wrapped in try/catch to preserve the rejection pattern
   - Process group kills (negative PID in kill) must bypass per-driver ownership since groups can span drivers
 ---
+
+## 2026-03-18 - US-115
+- Fixed exec() timeout to kill process (SIGTERM), detach stdout/stderr callbacks, and clear timer on normal exit
+- Files changed: packages/kernel/src/kernel.ts, packages/kernel/test/kernel-integration.test.ts
+- **Learnings for future iterations:**
+  - exec() uses Promise.race for timeout — the timer branch must clean up the process (kill + detach callbacks) and the normal branch must clear the timer
+  - MockRuntimeDriver `neverExit` + `killSignals` configs are useful for testing timeout/kill behavior
+  - vi.useFakeTimers() + vi.advanceTimersByTimeAsync() works well for verifying timer cleanup
+---
