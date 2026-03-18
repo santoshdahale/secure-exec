@@ -1694,3 +1694,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - type() starts settlement timer before writing input — even with zero output it resolves after SETTLE_MS (50ms)
   - Disabling echo via "noecho" command + ptySetDiscipline is a clean way to test zero-output type() scenarios
 ---
+
+## 2026-03-18 - US-112
+- What was implemented: Added two concurrent openShell() session isolation tests
+  - Output isolation: open two shells, send different commands (ALPHA vs BRAVO), verify each screen only contains its own output
+  - Exit isolation: exit shell A, verify shell B still works by running a command
+- Files changed:
+  - packages/kernel/test/shell-terminal.test.ts — added "concurrent openShell sessions" describe block with 2 tests
+  - prd.json — marked US-112 (P117) as passes: true
+- **Learnings for future iterations:**
+  - Multiple TerminalHarness instances on the same kernel work correctly — each gets its own PTY pair via openShell()
+  - MockShellDriver supports multiple concurrent shell processes since each spawn() creates independent state
+---

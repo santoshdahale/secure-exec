@@ -1968,7 +1968,7 @@
         "Tests pass"
       ],
       "priority": 117,
-      "passes": false,
+      "passes": true,
       "notes": "LOW \u2014 found during PTY review. Multi-PTY isolation is tested at raw PTY level but not through openShell() integration path."
     },
     {
