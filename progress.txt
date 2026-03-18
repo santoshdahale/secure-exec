@@ -1012,3 +1012,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - pnpm-workspace.yaml packages/* glob already covers packages/secure-exec-python/ — no workspace config change needed
   - Existing tests import from "secure-exec" barrel, not the internal path — barrel update is sufficient, no test changes needed
 ---
+
+## 2026-03-17 - US-061
+- What was implemented: Cleaned up secure-exec barrel package and updated docs/contracts for the new @secure-exec/* package split
+- Removed dead source files:
+  - packages/secure-exec/src/python/driver.ts (813 lines, replaced by @secure-exec/python)
+  - packages/secure-exec/src/generated/ directory (untracked build artifacts, now in @secure-exec/core)
+- Updated docs:
+  - docs/quickstart.mdx — new package install instructions, @secure-exec/* import paths, added Python tab
+  - docs/api-reference.mdx — added package structure table, per-section package annotations
+  - docs/runtimes/node.mdx — import paths from @secure-exec/node and @secure-exec/core
+  - docs/runtimes/python.mdx — import paths from @secure-exec/python and @secure-exec/node
+  - docs-internal/arch/overview.md — updated diagram with core/node/browser/python split, updated all source paths
+- Updated contracts:
+  - node-runtime.md — "Runtime Package Identity" now reflects package family split, updated isolate-runtime paths to core, updated JSON parse guard path
+  - isolate-runtime-source-architecture.md — paths updated from packages/secure-exec/ to packages/secure-exec-core/
+  - node-bridge.md — shared type module path updated to @secure-exec/core
+  - compatibility-governance.md — canonical naming updated for package family, bridge/source path references updated
+- Files changed: packages/secure-exec/src/python/driver.ts (deleted), docs/quickstart.mdx, docs/api-reference.mdx, docs/runtimes/node.mdx, docs/runtimes/python.mdx, docs-internal/arch/overview.md, .agent/contracts/node-runtime.md, .agent/contracts/isolate-runtime-source-architecture.md, .agent/contracts/node-bridge.md, .agent/contracts/compatibility-governance.md, prd.json
+- **Learnings for future iterations:**
+  - secure-exec/src/generated/ was never git-tracked (gitignored) — only python/driver.ts needed git rm
+  - Barrel package re-exports are clean: index.ts imports from @secure-exec/node, @secure-exec/python, @secure-exec/browser, and local ./shared re-exports from @secure-exec/core
+  - All pre-existing test failures are in kernel/ tests requiring WASM binary — doc/contract changes don't affect test outcomes
+---

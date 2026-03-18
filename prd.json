@@ -1041,7 +1041,7 @@
         "All tests pass"
       ],
       "priority": 61,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 5. The barrel re-exports everything \u2014 existing \"import from secure-exec\" statements require zero changes. Tests stay centralized per runtime-driver-test-suite-structure contract."
     },
     {
