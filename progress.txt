@@ -1761,3 +1761,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - Both project-matrix.test.ts and e2e-project-matrix.test.ts share the same fixture prep logic but are maintained separately — changes must be applied to both files
   - Berry (yarn v2+) is detected by `.yarnrc.yml` file presence in the project dir; `--immutable` flag requires a pre-existing yarn.lock
 ---
+
+## 2026-03-18 - US-087
+- Created npm flat layout fixture at packages/secure-exec/tests/projects/npm-layout-pass/
+- Files changed:
+  - packages/secure-exec/tests/projects/npm-layout-pass/fixture.json (packageManager: "npm")
+  - packages/secure-exec/tests/projects/npm-layout-pass/package.json (left-pad 0.0.3 dependency)
+  - packages/secure-exec/tests/projects/npm-layout-pass/package-lock.json (lockfileVersion 3)
+  - packages/secure-exec/tests/projects/npm-layout-pass/src/index.js (same as pnpm/bun fixtures)
+- **Learnings for future iterations:**
+  - `npm install --package-lock-only` generates package-lock.json without installing node_modules — useful for fixture prep
+  - Layout fixtures should mirror the same dependency (left-pad 0.0.3) and entry code for comparison across package managers
+---

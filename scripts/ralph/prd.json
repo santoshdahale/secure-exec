@@ -2051,7 +2051,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "npm uses flat hoisting - all deps directly in node_modules/ as real directories (no symlinks, no hardlinks).",
       "id": "US-087",
       "priority": 122
