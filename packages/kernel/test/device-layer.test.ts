@@ -88,12 +88,8 @@ describe("DeviceLayer", () => {
 
 	it("/dev/zero write is silently discarded", async () => {
 		const vfs = createTestVfs();
-		// Write to /dev/null (not /dev/zero — /dev/zero write goes to backing VFS)
-		// /dev/null accepts writes and discards them
-		await vfs.writeFile("/dev/null", "garbage");
-		const data = await vfs.readFile("/dev/null");
-		expect(data.length).toBe(0);
-		// /dev/zero always reads as zeros regardless of any VFS state
+		// Write to /dev/zero, then verify read still returns zeros
+		await vfs.writeFile("/dev/zero", "garbage");
 		const zeros = await vfs.readFile("/dev/zero");
 		expect(zeros.length).toBe(4096);
 		expect(zeros.every((b) => b === 0)).toBe(true);
@@ -112,13 +108,34 @@ describe("DeviceLayer", () => {
 
 	it("/dev/stdin read falls through to backing VFS (ENOENT when absent)", async () => {
 		const vfs = createTestVfs();
-		// Device layer passes read through to backing VFS — file doesn't exist
 		await expect(vfs.readFile("/dev/stdin")).rejects.toThrow();
+	});
+
+	it("/dev/stdout read falls through to backing VFS (ENOENT when absent)", async () => {
+		const vfs = createTestVfs();
+		await expect(vfs.readFile("/dev/stdout")).rejects.toThrow();
 	});
 
 	it("/dev/stderr read falls through to backing VFS (ENOENT when absent)", async () => {
 		const vfs = createTestVfs();
 		await expect(vfs.readFile("/dev/stderr")).rejects.toThrow();
+	});
+
+	it("/dev/stdout write passes through to backing VFS", async () => {
+		const vfs = createTestVfs();
+		// Writes to stdio devices are not intercepted — they pass through
+		await vfs.writeFile("/dev/stdout", "output");
+		// Read also passes through; backing VFS should have the data
+		// (readFile for /dev/stdout is not intercepted by device layer)
+		const data = await vfs.readTextFile("/dev/stdout");
+		expect(data).toBe("output");
+	});
+
+	it("/dev/stderr write passes through to backing VFS", async () => {
+		const vfs = createTestVfs();
+		await vfs.writeFile("/dev/stderr", "error output");
+		const data = await vfs.readTextFile("/dev/stderr");
+		expect(data).toBe("error output");
 	});
 
 	it("rename of device path throws EPERM", async () => {
