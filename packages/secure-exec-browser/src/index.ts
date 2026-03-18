@@ -1,17 +1,16 @@
-// Re-export browser driver factories from @secure-exec/browser.
 export {
 	createBrowserDriver,
 	createBrowserNetworkAdapter,
 	createOpfsFileSystem,
-} from "@secure-exec/browser";
+} from "./driver.js";
 export type {
 	BrowserDriverOptions,
 	BrowserRuntimeSystemOptions,
-} from "@secure-exec/browser";
+} from "./driver.js";
 export {
 	createBrowserRuntimeDriverFactory,
-} from "@secure-exec/browser";
+} from "./runtime-driver.js";
 export type {
 	BrowserRuntimeDriverFactoryOptions,
-} from "@secure-exec/browser";
+} from "./runtime-driver.js";
 export { createInMemoryFileSystem } from "@secure-exec/core";

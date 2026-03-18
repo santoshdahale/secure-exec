@@ -188,6 +188,9 @@ importers:
 
   packages/secure-exec:
     dependencies:
+      '@secure-exec/browser':
+        specifier: workspace:*
+        version: link:../secure-exec-browser
       '@secure-exec/core':
         specifier: workspace:*
         version: link:../secure-exec-core
@@ -237,6 +240,22 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.3)(@vitest/browser@2.1.9)
+
+  packages/secure-exec-browser:
+    dependencies:
+      '@secure-exec/core':
+        specifier: workspace:*
+        version: link:../secure-exec-core
+      sucrase:
+        specifier: ^3.35.0
+        version: 3.35.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.3
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
 
   packages/secure-exec-core:
     dependencies:

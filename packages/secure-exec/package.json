@@ -35,6 +35,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@secure-exec/browser": "workspace:*",
     "@secure-exec/core": "workspace:*",
     "@secure-exec/node": "workspace:*",
     "buffer": "^6.0.3",

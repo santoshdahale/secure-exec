@@ -12,6 +12,13 @@ function readNodeSource(relativePath: string): string {
 	);
 }
 
+function readBrowserSource(relativePath: string): string {
+	return readFileSync(
+		new URL(`../../secure-exec-browser/${relativePath}`, import.meta.url),
+		"utf8",
+	);
+}
+
 describe("isolate runtime injection policy", () => {
 	it("avoids template-literal isolate eval snippets in Node runtime loader", () => {
 		// The Node runtime loader spans execution-driver.ts (facade) and its
@@ -68,7 +75,8 @@ describe("isolate runtime injection policy", () => {
 	});
 
 	it("browser worker no longer injects fs module code via code strings", () => {
-		const workerSource = readSource("src/browser/worker.ts");
+		// Canonical source is now in @secure-exec/browser.
+		const workerSource = readBrowserSource("src/worker.ts");
 		expect(workerSource).not.toContain("_fsModuleCode");
 		expect(workerSource).toContain('getIsolateRuntimeSource("globalExposureHelpers")');
 	});

@@ -1,18 +1,18 @@
 // Browser-safe entrypoint for NodeRuntime + browser driver factories.
-export { NodeRuntime } from "./runtime.js";
-export type { NodeRuntimeOptions } from "./runtime.js";
+export { NodeRuntime } from "@secure-exec/core";
+export type { NodeRuntimeOptions } from "@secure-exec/core";
 
 export {
 	createBrowserDriver,
 	createBrowserNetworkAdapter,
 	createBrowserRuntimeDriverFactory,
 	createOpfsFileSystem,
-} from "./browser/index.js";
+} from "@secure-exec/browser";
 export type {
 	BrowserDriverOptions,
 	BrowserRuntimeDriverFactoryOptions,
 	BrowserRuntimeSystemOptions,
-} from "./browser/index.js";
+} from "@secure-exec/browser";
 
 export type {
 	StdioChannel,
@@ -25,7 +25,7 @@ export type {
 	ProcessConfig,
 	RunResult,
 	TimingMitigation,
-} from "./shared/api-types.js";
+} from "@secure-exec/core";
 
 export {
 	allowAll,
@@ -33,4 +33,4 @@ export {
 	allowAllEnv,
 	allowAllFs,
 	allowAllNetwork,
-} from "./shared/permissions.js";
+} from "@secure-exec/core";

@@ -72,6 +72,11 @@
       "types": "./dist/shared/*.d.ts",
       "import": "./dist/shared/*.js",
       "default": "./dist/shared/*.js"
+    },
+    "./internal/bridge": {
+      "types": "./dist/bridge/index.d.ts",
+      "import": "./dist/bridge/index.js",
+      "default": "./dist/bridge/index.js"
     }
   },
   "scripts": {

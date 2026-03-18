@@ -1,16 +1,16 @@
-import { createNetworkStub } from "../shared/permissions.js";
+import { createNetworkStub } from "@secure-exec/core";
 import type {
 	NetworkAdapter,
 	NodeRuntimeDriver,
 	NodeRuntimeDriverFactory,
 	RuntimeDriverOptions,
-} from "../types.js";
+} from "@secure-exec/core";
 import type {
 	ExecOptions,
 	ExecResult,
 	RunResult,
 	StdioHook,
-} from "../shared/api-types.js";
+} from "@secure-exec/core";
 import {
 	getBrowserSystemDriverOptions,
 } from "./driver.js";

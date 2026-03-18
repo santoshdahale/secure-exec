@@ -60,12 +60,12 @@ export {
 	createBrowserNetworkAdapter,
 	createBrowserRuntimeDriverFactory,
 	createOpfsFileSystem,
-} from "./browser/index.js";
+} from "@secure-exec/browser";
 export type {
 	BrowserDriverOptions,
 	BrowserRuntimeDriverFactoryOptions,
 	BrowserRuntimeSystemOptions,
-} from "./browser/index.js";
+} from "@secure-exec/browser";
 
 export { createInMemoryFileSystem } from "./shared/in-memory-fs.js";
 export {

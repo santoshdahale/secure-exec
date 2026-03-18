@@ -4,15 +4,15 @@ import {
 	createNetworkStub,
 	wrapFileSystem,
 	wrapNetworkAdapter,
-} from "../shared/permissions.js";
-import { createInMemoryFileSystem } from "../shared/in-memory-fs.js";
+	createInMemoryFileSystem,
+	createEnosysError,
+} from "@secure-exec/core";
 import type {
 	NetworkAdapter,
 	Permissions,
 	SystemDriver,
 	VirtualFileSystem,
-} from "../types.js";
-import { createEnosysError } from "../shared/errors.js";
+} from "@secure-exec/core";
 
 const S_IFREG = 0o100000;
 const S_IFDIR = 0o040000;

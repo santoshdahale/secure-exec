@@ -1,0 +1,50 @@
+{
+  "name": "@secure-exec/browser",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./internal/driver": {
+      "types": "./dist/driver.d.ts",
+      "import": "./dist/driver.js",
+      "default": "./dist/driver.js"
+    },
+    "./internal/runtime-driver": {
+      "types": "./dist/runtime-driver.d.ts",
+      "import": "./dist/runtime-driver.js",
+      "default": "./dist/runtime-driver.js"
+    },
+    "./internal/worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js",
+      "default": "./dist/worker.js"
+    },
+    "./internal/worker-protocol": {
+      "types": "./dist/worker-protocol.d.ts",
+      "import": "./dist/worker-protocol.js",
+      "default": "./dist/worker-protocol.js"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "build": "tsc",
+    "test": "echo 'no tests yet'"
+  },
+  "dependencies": {
+    "@secure-exec/core": "workspace:*",
+    "sucrase": "^3.35.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

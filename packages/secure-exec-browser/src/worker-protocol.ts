@@ -4,7 +4,7 @@ import type {
 	ExecResult,
 	RunResult,
 	StdioChannel,
-} from "../shared/api-types.js";
+} from "@secure-exec/core";
 
 export type SerializedPermissions = {
 	fs?: string;
