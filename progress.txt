@@ -2203,3 +2203,33 @@ PRD: ralph/kernel-hardening (46 stories)
   - generateKeyPairSync returns KeyObjects by default (no encoding options) or PEM strings when publicKeyEncoding/privateKeyEncoding are specified — mirrors Node.js behavior
   - Three bridge refs suffice for all 6 API functions: sign, verify, and generateKeyPairSync; async variants (generateKeyPair) and KeyObject constructors (createPublicKey/createPrivateKey) are handled purely on the sandbox side
 ---
+
+## 2026-03-18 - US-176
+- What was implemented: pg (node-postgres) project-matrix fixture verifying Pool, Client, types, Query classes load and have expected methods
+- Files changed:
+  - packages/secure-exec/tests/projects/pg-pass/package.json — new fixture with pg 8.13.1
+  - packages/secure-exec/tests/projects/pg-pass/fixture.json — pass expectation
+  - packages/secure-exec/tests/projects/pg-pass/src/index.js — imports pg, verifies Pool/Client/types/Query exports and prototype methods, checks type parser APIs and defaults module
+  - docs/nodejs-compatibility.mdx — added pg to Tested Packages table
+- **Learnings for future iterations:**
+  - pg Pool/Client constructors with config trigger net.Socket on pool.end() — avoid calling connect/end/query in sandbox fixtures
+  - Fixture tests class existence and prototype methods without instantiating Pool/Client (which attempt network connections)
+  - require("pg/lib/defaults") gives access to default config values (host, port) for verification without triggering network
+  - Query class is exported directly from pg as a named export
+---
+
+## 2026-03-18 - US-177
+- What was implemented: Added drizzle-orm project-matrix fixture that verifies ORM schema definition and query building in the sandbox
+- Files changed:
+  - packages/secure-exec/tests/projects/drizzle-pass/package.json — fixture package with drizzle-orm 0.45.1 dep
+  - packages/secure-exec/tests/projects/drizzle-pass/fixture.json — standard pass fixture config
+  - packages/secure-exec/tests/projects/drizzle-pass/src/index.js — defines pgTable schema, checks column metadata, verifies eq/and/sql operators
+  - docs/nodejs-compatibility.mdx — added drizzle-orm to Tested Packages table
+  - scripts/ralph/prd.json — marked US-177 passes: true
+- **Learnings for future iterations:**
+  - drizzle-orm CJS require works for both main entry ("drizzle-orm") and subpath ("drizzle-orm/pg-core")
+  - Table name accessed via Symbol.for("drizzle:Name"), not a plain property
+  - pgTable auto-adds "enableRLS" to column names — include it in sorted column list expectations
+  - drizzle-orm has zero dependencies — installs fast, good candidate for lightweight ORM testing
+  - e2e-project-matrix kernel tests fail for ALL fixtures (pre-existing), not a drizzle-specific issue
+---
