@@ -1,10 +1,105 @@
 {
   "project": "secure-exec",
   "branchName": "ralph/cli-tool-sandbox-tests",
-  "description": "Fix CLI Tool E2E Tests — All 6 cli-tools test files bypass the secure-exec sandbox entirely, spawning tools as host processes. Rewrite them to run through the sandbox: Pi runs as JS inside the VM via createAgentSession(), OpenCode and Claude Code spawn their binaries via the sandbox's child_process.spawn bridge. Interactive tests use kernel.openShell() instead of host PTY.",
+  "description": "Fix E2E Docker fixtures and CLI tool tests — Run Docker fixtures against real containers and fix net bridge issues until parity passes. Rewrite all 6 cli-tools tests to run through the sandbox instead of bypassing it on the host.",
   "userStories": [
     {
       "id": "US-001",
+      "title": "Run pg-connect fixture against real Postgres container and fix until parity passes",
+      "description": "As a developer, I need the pg-connect Docker fixture to connect to a real Postgres container through the sandbox's net bridge so we validate that the pg library works end-to-end inside secure-exec.",
+      "acceptanceCriteria": [
+        "Start a real Postgres container (postgres:16-alpine) with testuser/testpass/testdb",
+        "Run the pg-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
+        "Fix any net bridge issues (net.Socket, net.connect, etc.) that prevent the pg library from connecting",
+        "Fixture creates table, inserts, queries, drops — all through the sandbox's network bridge to real Postgres",
+        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
+        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
+        "No mocking of Postgres — must use a real Docker container",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Currently expects failure with 'net.Socket is not supported in sandbox'. The net bridge is deferred (Tier 4). This story requires implementing enough of the net bridge for TCP connections to work through the sandbox. pg uses new net.Socket() internally."
+    },
+    {
+      "id": "US-002",
+      "title": "Run mysql2-connect fixture against real MySQL container and fix until parity passes",
+      "description": "As a developer, I need the mysql2-connect Docker fixture to connect to a real MySQL container through the sandbox's net bridge so we validate that mysql2 works end-to-end inside secure-exec.",
+      "acceptanceCriteria": [
+        "Start a real MySQL container (mysql:8.0) with testuser/testpass/testdb",
+        "Run the mysql2-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
+        "Fix any net bridge issues that prevent mysql2 from connecting",
+        "Fixture creates table, inserts, queries, drops — all through the sandbox to real MySQL",
+        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
+        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
+        "No mocking of MySQL — must use a real Docker container",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Currently expects failure with 'net.connect is not supported in sandbox'. mysql2 uses net.connect() internally. Depends on net bridge work from US-001."
+    },
+    {
+      "id": "US-003",
+      "title": "Run ioredis-connect fixture against real Redis container and fix until parity passes",
+      "description": "As a developer, I need the ioredis-connect Docker fixture to connect to a real Redis container through the sandbox's net bridge so we validate that ioredis works end-to-end inside secure-exec.",
+      "acceptanceCriteria": [
+        "Start a real Redis container (redis:7-alpine)",
+        "Run the ioredis-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
+        "Fix any net bridge issues that prevent ioredis from connecting",
+        "Fixture does set/get, pipeline operations, cleanup — all through the sandbox to real Redis",
+        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
+        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
+        "No mocking of Redis — must use a real Docker container",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Currently expects failure with 'net.createConnection is not supported in sandbox'. ioredis uses net.createConnection() internally. Depends on net bridge work from US-001."
+    },
+    {
+      "id": "US-004",
+      "title": "Run ssh2-connect fixture against real SSH container and fix until parity passes",
+      "description": "As a developer, I need the ssh2-connect Docker fixture to connect to a real SSH container through the sandbox's net bridge so we validate that ssh2 works end-to-end inside secure-exec.",
+      "acceptanceCriteria": [
+        "Start a real SSH container (custom Alpine sshd image) with testuser/testpass",
+        "Run the ssh2-connect fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
+        "Fix any net bridge issues that prevent ssh2 from connecting",
+        "Fixture connects via SSH, executes remote command, captures stdout/stderr — all through the sandbox",
+        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
+        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
+        "No mocking of SSH — must use a real Docker container",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Currently expects failure with 'net.Socket is not supported in sandbox'. ssh2 uses net.Socket for TCP and does complex binary framing, crypto negotiation, and bidirectional streaming. Hardest fixture after net bridge basics land."
+    },
+    {
+      "id": "US-005",
+      "title": "Run ssh2-sftp-transfer fixture against real SSH container and fix until parity passes",
+      "description": "As a developer, I need the ssh2-sftp-transfer Docker fixture to connect to a real SSH container and do SFTP file operations through the sandbox's net bridge.",
+      "acceptanceCriteria": [
+        "Start a real SSH container (custom Alpine sshd image) with testuser/testpass",
+        "Run the ssh2-sftp-transfer fixture inside the sandbox via createTestNodeRuntime + proc.exec()",
+        "Fix any issues that prevent SFTP write/read/stat/unlink from working through the sandbox",
+        "Fixture writes file, reads it back, stats it, unlinks it — all through the sandbox to real SFTP",
+        "Update fixture.json expectation from 'fail' to 'pass' once parity is achieved",
+        "Host Node.js and sandbox produce identical normalized stdout/stderr/exit code",
+        "No mocking of SFTP — must use a real Docker container",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Currently expects failure with 'net.Socket is not supported in sandbox'. Depends on ssh2 working (US-004). Tests SFTP subsystem negotiation and file stream correctness."
+    },
+    {
+      "id": "US-006",
       "title": "Rewrite pi-headless.test.ts to run Pi inside the secure-exec sandbox VM",
       "description": "As a developer, I need the Pi headless tests to run Pi's JavaScript inside the secure-exec sandbox so the tests actually validate the sandbox's module loading, fs bridge, network bridge, and child_process bridge.",
       "acceptanceCriteria": [
@@ -18,12 +113,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 1,
+      "priority": 6,
       "passes": false,
       "notes": "Pi is pure JS with a createAgentSession() programmatic API. Its tools (bash, read, write) use child_process and fs which the sandbox bridges. Look at test-suite/node.test.ts for patterns on creating NodeRuntime and running code inside it. The current test explicitly admits 'Pi runs as a host process' in its header comment."
     },
     {
-      "id": "US-002",
+      "id": "US-007",
       "title": "Rewrite pi-interactive.test.ts to use kernel.openShell() inside the sandbox",
       "description": "As a developer, I need the Pi interactive tests to run Pi's TUI through the sandbox's PTY (kernel.openShell()) so the tests validate the sandbox's PTY line discipline, isTTY bridge, and signal delivery.",
       "acceptanceCriteria": [
@@ -36,12 +131,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 2,
+      "priority": 7,
       "passes": false,
       "notes": "The current test uses a custom PtyHarness that spawns Pi via host 'script -qefc'. The spec says to use kernel.openShell() with @xterm/headless. Check if TerminalHarness exists in kernel test utils. isTTY must be true for PTY-attached processes (spec gap #5)."
     },
     {
-      "id": "US-003",
+      "id": "US-008",
       "title": "Rewrite opencode-headless.test.ts to spawn opencode via sandbox child_process bridge",
       "description": "As a developer, I need the OpenCode headless tests to spawn the opencode binary from inside the secure-exec sandbox via the child_process.spawn bridge, so the tests validate stdio piping, env forwarding, signal delivery, and exit code propagation through the bridge.",
       "acceptanceCriteria": [
@@ -57,12 +152,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 3,
+      "priority": 8,
       "passes": false,
       "notes": "OpenCode is a compiled Bun binary (ELF), not JavaScript. It cannot run in-process inside the VM. The correct approach is sandbox code calling child_process.spawn('opencode', ...) which goes through the bridge. The current test's Strategy A calls spawn() directly from the test harness (host), completely bypassing the bridge. Strategy B (SDK client) should be removed per user direction."
     },
     {
-      "id": "US-004",
+      "id": "US-009",
       "title": "Rewrite opencode-interactive.test.ts to use kernel.openShell() with opencode binary",
       "description": "As a developer, I need the OpenCode interactive tests to spawn the opencode binary through the sandbox's PTY so the tests validate the kernel's PTY management of external binaries.",
       "acceptanceCriteria": [
@@ -75,12 +170,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 4,
+      "priority": 9,
       "passes": false,
       "notes": "The current test uses PtyHarness that spawns opencode via host 'script -qefc'. Since opencode is a native binary, it must be spawned from the sandbox via the child_process bridge in PTY mode, or via kernel.openShell() if that supports external binaries."
     },
     {
-      "id": "US-005",
+      "id": "US-010",
       "title": "Rewrite claude-headless.test.ts to spawn claude via sandbox child_process bridge",
       "description": "As a developer, I need the Claude Code headless tests to spawn the claude binary from inside the secure-exec sandbox via the child_process.spawn bridge, so the tests validate the bridge handles Claude Code's complex subprocess lifecycle.",
       "acceptanceCriteria": [
@@ -93,12 +188,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 5,
+      "priority": 10,
       "passes": false,
       "notes": "Claude Code ships cli.js (12MB bundle) with native .node modules (tree-sitter-bash). The SDK's ProcessTransport always spawns cli.js as subprocess. Since it can't run in-process, the correct approach is sandbox code calling child_process.spawn('claude', ...) through the bridge. The current test spawns claude directly from the test harness."
     },
     {
-      "id": "US-006",
+      "id": "US-011",
       "title": "Rewrite claude-interactive.test.ts to use kernel.openShell() with claude binary",
       "description": "As a developer, I need the Claude Code interactive tests to run Claude's TUI through the sandbox's PTY so the tests validate the kernel's PTY management and signal delivery for Claude's Ink-based interface.",
       "acceptanceCriteria": [
@@ -111,12 +206,12 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "priority": 6,
+      "priority": 11,
       "passes": false,
       "notes": "The current test uses PtyHarness that spawns claude via host 'script -qefc'. Claude Code uses Ink for its TUI. Since it's a native binary, it must be spawned from the sandbox via the child_process bridge in PTY mode."
     },
     {
-      "id": "US-007",
+      "id": "US-012",
       "title": "Update cli-tool-e2e spec to reflect actual tool capabilities",
       "description": "As a developer, I need the spec to accurately document which tools can run as JS inside the VM vs which must be spawned as binaries, so future iterations don't repeat the same mistakes.",
       "acceptanceCriteria": [
@@ -128,7 +223,7 @@
         "Update the 'Two sandbox strategies' section to accurately reflect: in-VM (Pi only) and bridge-spawn (Claude Code, OpenCode)",
         "Typecheck passes"
       ],
-      "priority": 7,
+      "priority": 12,
       "passes": false,
       "notes": "The spec currently claims OpenCode 'exercises a different sandbox path: the binary runs on the host via child_process.spawn' as if this is unique to OpenCode. In reality, Claude Code also requires this approach. Pi is the only tool that can genuinely run as JS inside the VM."
     }
