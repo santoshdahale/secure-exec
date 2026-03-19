@@ -19,7 +19,7 @@
         "Tests pass"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Currently expects failure with 'net.Socket is not supported in sandbox'. The net bridge is deferred (Tier 4). This story requires implementing enough of the net bridge for TCP connections to work through the sandbox. pg uses new net.Socket() internally."
     },
     {
@@ -114,7 +114,7 @@
         "Tests pass"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Pi is pure JS with a createAgentSession() programmatic API. Its tools (bash, read, write) use child_process and fs which the sandbox bridges. Look at test-suite/node.test.ts for patterns on creating NodeRuntime and running code inside it. The current test explicitly admits 'Pi runs as a host process' in its header comment."
     },
     {

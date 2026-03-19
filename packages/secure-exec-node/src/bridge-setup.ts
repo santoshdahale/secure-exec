@@ -183,7 +183,8 @@ export async function setupRequire(
 				name === "http" ||
 				name === "https" ||
 				name === "http2" ||
-				name === "dns"
+				name === "dns" ||
+				name === "net"
 			) {
 				return null;
 			}
@@ -1447,6 +1448,73 @@ export async function setupRequire(
 				);
 			},
 		});
+
+		// TCP socket bridge refs (net module)
+		let netSocketDispatchRef: ivm.Reference<
+			(socketId: number, type: string, data: string) => void
+		> | null = null;
+
+		const getNetSocketDispatchRef = () => {
+			if (!netSocketDispatchRef) {
+				netSocketDispatchRef = context.global.getSync(
+					RUNTIME_BRIDGE_GLOBAL_KEYS.netSocketDispatch,
+					{ reference: true },
+				) as ivm.Reference<
+					(socketId: number, type: string, data: string) => void
+				>;
+			}
+			return netSocketDispatchRef!;
+		};
+
+		const dispatchNetEvent = (socketId: number, type: string, data: string) => {
+			try {
+				getNetSocketDispatchRef().applySync(
+					undefined,
+					[socketId, type, data],
+				);
+			} catch {
+				// Isolate may have been disposed; silently drop the event
+			}
+		};
+
+		const netSocketConnectRef = new ivm.Reference(
+			(host: string, port: number): number => {
+				checkBridgeBudget(deps);
+				// Use adapter-returned socketId for all dispatch/write/end/destroy
+				let socketId = -1;
+				socketId = adapter.netSocketConnect?.(host, port, {
+					onConnect: () => dispatchNetEvent(socketId, "connect", ""),
+					onData: (dataBase64) => dispatchNetEvent(socketId, "data", dataBase64),
+					onEnd: () => dispatchNetEvent(socketId, "end", ""),
+					onError: (message) => dispatchNetEvent(socketId, "error", message),
+					onClose: (hadError) => dispatchNetEvent(socketId, "close", hadError ? "1" : "0"),
+				}) ?? -1;
+				return socketId;
+			},
+		);
+
+		const netSocketWriteRef = new ivm.Reference(
+			(socketId: number, dataBase64: string): void => {
+				adapter.netSocketWrite?.(socketId, dataBase64);
+			},
+		);
+
+		const netSocketEndRef = new ivm.Reference(
+			(socketId: number): void => {
+				adapter.netSocketEnd?.(socketId);
+			},
+		);
+
+		const netSocketDestroyRef = new ivm.Reference(
+			(socketId: number): void => {
+				adapter.netSocketDestroy?.(socketId);
+			},
+		);
+
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.netSocketConnectRaw, netSocketConnectRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.netSocketWriteRaw, netSocketWriteRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.netSocketEndRaw, netSocketEndRef);
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.netSocketDestroyRaw, netSocketDestroyRef);
 	}
 
 	// Set up PTY setRawMode bridge ref when stdin is a TTY

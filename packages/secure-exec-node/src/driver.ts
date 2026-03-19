@@ -465,6 +465,44 @@ export function createDefaultNetworkAdapter(options?: {
 			onUpgradeSocketEnd = callbacks.onEnd;
 		},
 
+		// TCP socket (net module) support
+		netSocketConnect(host, port, callbacks) {
+			const socketId = nextUpgradeSocketId++;
+			const socket = new net.Socket();
+
+			socket.on("connect", () => callbacks.onConnect());
+			socket.on("data", (chunk) => callbacks.onData(chunk.toString("base64")));
+			socket.on("end", () => callbacks.onEnd());
+			socket.on("error", (err) => callbacks.onError(err.message));
+			socket.on("close", (hadError) => callbacks.onClose(hadError));
+
+			upgradeSockets.set(socketId, socket);
+			socket.connect(port, host);
+			return socketId;
+		},
+
+		netSocketWrite(socketId, dataBase64) {
+			const socket = upgradeSockets.get(socketId);
+			if (socket && !socket.destroyed) {
+				socket.write(Buffer.from(dataBase64, "base64"));
+			}
+		},
+
+		netSocketEnd(socketId) {
+			const socket = upgradeSockets.get(socketId);
+			if (socket && !socket.destroyed) {
+				socket.end();
+			}
+		},
+
+		netSocketDestroy(socketId) {
+			const socket = upgradeSockets.get(socketId);
+			if (socket) {
+				socket.destroy();
+				upgradeSockets.delete(socketId);
+			}
+		},
+
 		async fetch(url, options) {
 			// SSRF: validate initial URL and manually follow redirects
 			// Allow loopback fetch to sandbox-owned server ports

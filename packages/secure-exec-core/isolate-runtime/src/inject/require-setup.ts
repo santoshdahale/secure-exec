@@ -1130,7 +1130,6 @@
 
       // Set up support-tier policy for unimplemented core modules
       const _deferredCoreModules = new Set([
-        'net',
         'tls',
         'readline',
         'perf_hooks',
@@ -1358,6 +1357,14 @@
           __internalModuleCache['dns'] = _dnsModule;
           _debugRequire('loaded', name, 'dns-special');
           return _dnsModule;
+        }
+
+        // Special handling for net module
+        if (name === 'net') {
+          if (__internalModuleCache['net']) return __internalModuleCache['net'];
+          __internalModuleCache['net'] = _netModule;
+          _debugRequire('loaded', name, 'net-special');
+          return _netModule;
         }
 
         // Special handling for os module

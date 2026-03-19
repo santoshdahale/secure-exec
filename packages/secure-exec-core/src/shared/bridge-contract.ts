@@ -66,6 +66,10 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	upgradeSocketWriteRaw: "_upgradeSocketWriteRaw",
 	upgradeSocketEndRaw: "_upgradeSocketEndRaw",
 	upgradeSocketDestroyRaw: "_upgradeSocketDestroyRaw",
+	netSocketConnectRaw: "_netSocketConnectRaw",
+	netSocketWriteRaw: "_netSocketWriteRaw",
+	netSocketEndRaw: "_netSocketEndRaw",
+	netSocketDestroyRaw: "_netSocketDestroyRaw",
 	ptySetRawMode: "_ptySetRawMode",
 	processConfig: "_processConfig",
 	osConfig: "_osConfig",
@@ -91,6 +95,8 @@ export const RUNTIME_BRIDGE_GLOBAL_KEYS = {
 	httpServerUpgradeDispatch: "_httpServerUpgradeDispatch",
 	upgradeSocketData: "_upgradeSocketData",
 	upgradeSocketEnd: "_upgradeSocketEnd",
+	netModule: "_netModule",
+	netSocketDispatch: "_netSocketDispatch",
 	fsFacade: "_fs",
 	requireFrom: "_requireFrom",
 	moduleCache: "_moduleCache",
@@ -255,6 +261,12 @@ export type NetworkHttpServerCloseRawBridgeRef = BridgeApplyRef<[number], void>;
 export type UpgradeSocketWriteRawBridgeRef = BridgeApplySyncRef<[number, string], void>;
 export type UpgradeSocketEndRawBridgeRef = BridgeApplySyncRef<[number], void>;
 export type UpgradeSocketDestroyRawBridgeRef = BridgeApplySyncRef<[number], void>;
+
+// TCP socket (net module) boundary contracts.
+export type NetSocketConnectRawBridgeRef = BridgeApplySyncRef<[string, number], number>;
+export type NetSocketWriteRawBridgeRef = BridgeApplySyncRef<[number, string], void>;
+export type NetSocketEndRawBridgeRef = BridgeApplySyncRef<[number], void>;
+export type NetSocketDestroyRawBridgeRef = BridgeApplySyncRef<[number], void>;
 
 // PTY boundary contracts.
 export type PtySetRawModeBridgeRef = BridgeApplySyncRef<[boolean], void>;
