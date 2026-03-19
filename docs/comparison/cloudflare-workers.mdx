@@ -5,7 +5,7 @@ description: Node.js API compatibility comparison between secure-exec and Cloudf
 icon: "scale-balanced"
 ---
 
-*Last updated: 2026-03-10*
+*Last updated: 2026-03-18*
 
 ## Overview
 
@@ -40,8 +40,8 @@ All three CF deployment models share the same `nodejs_compat` API surface. WfP a
 
 | Module | secure-exec | CF Workers (`nodejs_compat`) | Notes |
 | --- | --- | --- | --- |
-| **`fs`** | 🟡 Core I/O: `readFile`, `writeFile`, `appendFile`, `open`, `read`, `write`, `close`, `readdir`, `mkdir`, `rmdir`, `rm`, `unlink`, `stat`, `lstat`, `rename`, `copyFile`, `exists`, `createReadStream`, `createWriteStream`, `writev`, `access`, `realpath`. Missing: `cp`, `glob`, `opendir`, `mkdtemp`, `statfs`, `readv`, `fdatasync`, `fsync`. Deferred: `watch`, `watchFile`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`. Full coverage planned. | 🟡 In-memory VFS only. `/bundle` (read-only), `/tmp` (writable, ephemeral per-request), `/dev` devices. Missing: `watch`, `watchFile`, `globSync`, file permissions/ownership. All operations synchronous regardless of API style. Timestamps frozen to Unix epoch. 128 MB max file size. | **secure-exec**: Permission-gated; filesystem behavior determined by system driver (host FS or VFS). Read-only `/app/node_modules` overlay. **CF**: No persistent storage; `/tmp` contents isolated per request and lost after response; no real permissions or ownership. |
-| **`http`** | 🟡 `request`, `get`, `createServer` with bridged request/response classes. Fetch-based, fully buffered. No connection pooling, no keep-alive tuning, no WebSocket upgrade, no trailer headers. `Agent` is stub-only. | 🟡 `request`, `get`, `createServer` via fetch API wrapper. Requires extra compat flags. No `Connection` headers, no `Expect: 100-continue`, no socket-level events (`socket`, `upgrade`), no 1xx responses, no trailer headers. `Agent` is stub-only. | |
+| **`fs`** | 🟢 Core I/O: `readFile`, `writeFile`, `appendFile`, `open`, `read`, `write`, `close`, `readdir`, `mkdir`, `rmdir`, `rm`, `unlink`, `stat`, `lstat`, `rename`, `copyFile`, `exists`, `createReadStream`, `createWriteStream`, `writev`, `access`, `realpath`, `cp`, `glob`, `opendir`, `mkdtemp`, `statfs`, `readv`, `fdatasync`, `fsync`, `chmod`, `chown`, `link`, `symlink`, `readlink`, `truncate`, `utimes`. Deferred: `watch`, `watchFile`. | 🟡 In-memory VFS only. `/bundle` (read-only), `/tmp` (writable, ephemeral per-request), `/dev` devices. Missing: `watch`, `watchFile`, `globSync`, file permissions/ownership. All operations synchronous regardless of API style. Timestamps frozen to Unix epoch. 128 MB max file size. | **secure-exec**: Permission-gated; filesystem behavior determined by system driver (host FS or VFS). Read-only `/app/node_modules` overlay. **CF**: No persistent storage; `/tmp` contents isolated per request and lost after response; no real permissions or ownership. |
+| **`http`** | 🟡 `request`, `get`, `createServer` with bridged request/response classes. Fetch-based, fully buffered. `Agent` with connection pooling and per-host `maxSockets` limits. HTTP upgrade (101 Switching Protocols) support. Trailer header support on `IncomingMessage`. No keep-alive tuning, no WebSocket data framing. | 🟡 `request`, `get`, `createServer` via fetch API wrapper. Requires extra compat flags. No `Connection` headers, no `Expect: 100-continue`, no socket-level events (`socket`, `upgrade`), no 1xx responses, no trailer headers. `Agent` is stub-only. | |
 | **`https`** | 🟡 Same contract and limitations as `http`. | 🟡 Same wrapper model and limitations as `http`. | |
 | **`http2`** | 🔴 Compatibility classes only; `createServer`/`createSecureServer` throw. | 🔴 Non-functional stub. | Neither platform supports HTTP/2 server creation. |
 | **`net`** | 🔵 Planned. | 🟡 `net.connect()` / `net.Socket` for outbound TCP via Cloudflare Sockets API. No `net.createServer()`. | **CF**: Outbound TCP connections supported. **secure-exec**: On roadmap. |
@@ -91,13 +91,13 @@ All three CF deployment models share the same `nodejs_compat` API surface. WfP a
 | **`events`** | 🟢 Supported. | 🟢 Supported. | |
 | **`module`** | 🟢 `createRequire`, `Module` basics, builtin resolution. | 🟡 Limited surface. | **secure-exec**: CJS/ESM with `createRequire`. |
 | **`console`** | 🟢 Circular-safe bounded formatting; drop-by-default with `onStdio` hook. | 🟢 Supported; output routed to Workers Logs / Tail Workers. | |
-| **`async_hooks`** | ⚪ TBD. | 🔴 Non-functional stub. | |
+| **`async_hooks`** | 🔴 Stub: `AsyncLocalStorage` (run/enterWith/getStore/disable/exit), `AsyncResource` (runInAsyncScope/emitDestroy), `createHook` (returns enable/disable no-ops), `executionAsyncId`/`triggerAsyncId`. All methods are callable but do not track real async context. | 🔴 Non-functional stub. | |
 | **`perf_hooks`** | ⚪ TBD. | 🟡 Limited surface. | |
-| **`diagnostics_channel`** | ⚪ TBD. | 🟢 Supported. | |
+| **`diagnostics_channel`** | 🔴 Stub: `channel()`, `hasSubscribers()`, `tracingChannel()`, `Channel` constructor. All channels report no subscribers; `publish` is a no-op. Sufficient for framework compatibility (e.g., Fastify). | 🟢 Supported. | |
 | **`readline`** | ⚪ TBD. | 🔴 Non-functional stub. | |
 | **`tty`** | 🔴 `isatty()` returns `false`; `ReadStream`/`WriteStream` throw. | 🔴 Stub-like. | Both platforms are essentially non-functional beyond `isatty()`. |
 | **`constants`** | 🟢 Supported. | 🟢 Supported. | |
-| **`punycode`** | Not listed. | 🟢 Supported (deprecated). | |
+| **`punycode`** | 🟢 Supported via `node-stdlib-browser` polyfill (deprecated upstream). | 🟢 Supported (deprecated). | |
 
 ### Unsupported in Both
 
