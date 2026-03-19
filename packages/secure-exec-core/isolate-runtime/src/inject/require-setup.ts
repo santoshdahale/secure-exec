@@ -746,6 +746,173 @@
             result.KeyObject = SandboxKeyObject;
           }
 
+          // Overlay host-backed crypto.subtle (Web Crypto API)
+          if (typeof _cryptoSubtle !== 'undefined') {
+            function SandboxCryptoKey(keyData) {
+              this.type = keyData.type;
+              this.extractable = keyData.extractable;
+              this.algorithm = keyData.algorithm;
+              this.usages = keyData.usages;
+              this._keyData = keyData;
+            }
+
+            function toBase64(data) {
+              if (typeof data === 'string') return Buffer.from(data).toString('base64');
+              if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString('base64');
+              if (ArrayBuffer.isView(data)) return Buffer.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)).toString('base64');
+              return Buffer.from(data).toString('base64');
+            }
+
+            function subtleCall(reqObj) {
+              return _cryptoSubtle.applySync(undefined, [JSON.stringify(reqObj)]);
+            }
+
+            function normalizeAlgo(algorithm) {
+              if (typeof algorithm === 'string') return { name: algorithm };
+              return algorithm;
+            }
+
+            var SandboxSubtle = {};
+
+            SandboxSubtle.digest = function digest(algorithm, data) {
+              return Promise.resolve().then(function() {
+                var algo = normalizeAlgo(algorithm);
+                var result2 = JSON.parse(subtleCall({
+                  op: 'digest',
+                  algorithm: algo.name,
+                  data: toBase64(data),
+                }));
+                var buf = Buffer.from(result2.data, 'base64');
+                return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+              });
+            };
+
+            SandboxSubtle.generateKey = function generateKey(algorithm, extractable, keyUsages) {
+              return Promise.resolve().then(function() {
+                var algo = normalizeAlgo(algorithm);
+                var reqAlgo = Object.assign({}, algo);
+                if (reqAlgo.hash) reqAlgo.hash = normalizeAlgo(reqAlgo.hash);
+                if (reqAlgo.publicExponent) {
+                  reqAlgo.publicExponent = Buffer.from(new Uint8Array(reqAlgo.publicExponent.buffer || reqAlgo.publicExponent)).toString('base64');
+                }
+                var result2 = JSON.parse(subtleCall({
+                  op: 'generateKey',
+                  algorithm: reqAlgo,
+                  extractable: extractable,
+                  usages: Array.from(keyUsages),
+                }));
+                if (result2.publicKey && result2.privateKey) {
+                  return {
+                    publicKey: new SandboxCryptoKey(result2.publicKey),
+                    privateKey: new SandboxCryptoKey(result2.privateKey),
+                  };
+                }
+                return new SandboxCryptoKey(result2.key);
+              });
+            };
+
+            SandboxSubtle.importKey = function importKey(format, keyData, algorithm, extractable, keyUsages) {
+              return Promise.resolve().then(function() {
+                var algo = normalizeAlgo(algorithm);
+                var reqAlgo = Object.assign({}, algo);
+                if (reqAlgo.hash) reqAlgo.hash = normalizeAlgo(reqAlgo.hash);
+                var serializedKeyData;
+                if (format === 'jwk') {
+                  serializedKeyData = keyData;
+                } else if (format === 'raw') {
+                  serializedKeyData = toBase64(keyData);
+                } else {
+                  serializedKeyData = toBase64(keyData);
+                }
+                var result2 = JSON.parse(subtleCall({
+                  op: 'importKey',
+                  format: format,
+                  keyData: serializedKeyData,
+                  algorithm: reqAlgo,
+                  extractable: extractable,
+                  usages: Array.from(keyUsages),
+                }));
+                return new SandboxCryptoKey(result2.key);
+              });
+            };
+
+            SandboxSubtle.exportKey = function exportKey(format, key) {
+              return Promise.resolve().then(function() {
+                var result2 = JSON.parse(subtleCall({
+                  op: 'exportKey',
+                  format: format,
+                  key: key._keyData,
+                }));
+                if (format === 'jwk') return result2.jwk;
+                var buf = Buffer.from(result2.data, 'base64');
+                return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+              });
+            };
+
+            SandboxSubtle.encrypt = function encrypt(algorithm, key, data) {
+              return Promise.resolve().then(function() {
+                var algo = normalizeAlgo(algorithm);
+                var reqAlgo = Object.assign({}, algo);
+                if (reqAlgo.iv) reqAlgo.iv = toBase64(reqAlgo.iv);
+                if (reqAlgo.additionalData) reqAlgo.additionalData = toBase64(reqAlgo.additionalData);
+                var result2 = JSON.parse(subtleCall({
+                  op: 'encrypt',
+                  algorithm: reqAlgo,
+                  key: key._keyData,
+                  data: toBase64(data),
+                }));
+                var buf = Buffer.from(result2.data, 'base64');
+                return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+              });
+            };
+
+            SandboxSubtle.decrypt = function decrypt(algorithm, key, data) {
+              return Promise.resolve().then(function() {
+                var algo = normalizeAlgo(algorithm);
+                var reqAlgo = Object.assign({}, algo);
+                if (reqAlgo.iv) reqAlgo.iv = toBase64(reqAlgo.iv);
+                if (reqAlgo.additionalData) reqAlgo.additionalData = toBase64(reqAlgo.additionalData);
+                var result2 = JSON.parse(subtleCall({
+                  op: 'decrypt',
+                  algorithm: reqAlgo,
+                  key: key._keyData,
+                  data: toBase64(data),
+                }));
+                var buf = Buffer.from(result2.data, 'base64');
+                return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+              });
+            };
+
+            SandboxSubtle.sign = function sign(algorithm, key, data) {
+              return Promise.resolve().then(function() {
+                var result2 = JSON.parse(subtleCall({
+                  op: 'sign',
+                  algorithm: normalizeAlgo(algorithm),
+                  key: key._keyData,
+                  data: toBase64(data),
+                }));
+                var buf = Buffer.from(result2.data, 'base64');
+                return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+              });
+            };
+
+            SandboxSubtle.verify = function verify(algorithm, key, signature, data) {
+              return Promise.resolve().then(function() {
+                var result2 = JSON.parse(subtleCall({
+                  op: 'verify',
+                  algorithm: normalizeAlgo(algorithm),
+                  key: key._keyData,
+                  signature: toBase64(signature),
+                  data: toBase64(data),
+                }));
+                return result2.result;
+              });
+            };
+
+            result.subtle = SandboxSubtle;
+            result.webcrypto = { subtle: SandboxSubtle, getRandomValues: result.randomFillSync };
+          }
+
           return result;
         }
 

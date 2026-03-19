@@ -13,6 +13,7 @@ import {
 	generateKeyPairSync,
 	createPublicKey,
 	createPrivateKey,
+	timingSafeEqual,
 } from "node:crypto";
 import {
 	getInitialBridgeGlobalsSetupCode,
@@ -436,6 +437,386 @@ export async function setupRequire(
 		HOST_BRIDGE_GLOBAL_KEYS.cryptoGenerateKeyPairSync,
 		cryptoGenerateKeyPairSyncRef,
 	);
+
+	// Set up host crypto.subtle dispatcher for Web Crypto API.
+	// Single dispatcher handles all subtle operations via JSON-encoded requests.
+	const cryptoSubtleRef = new ivm.Reference((opJson: string): string => {
+		const req = JSON.parse(opJson);
+		const normalizeHash = (h: string | { name: string }): string => {
+			const n = typeof h === "string" ? h : h.name;
+			return n.toLowerCase().replace("-", "");
+		};
+		switch (req.op) {
+			case "digest": {
+				const algo = normalizeHash(req.algorithm);
+				const data = Buffer.from(req.data, "base64");
+				return JSON.stringify({
+					data: createHash(algo).update(data).digest("base64"),
+				});
+			}
+			case "generateKey": {
+				const algoName = req.algorithm.name;
+				if (
+					algoName === "AES-GCM" ||
+					algoName === "AES-CBC" ||
+					algoName === "AES-CTR"
+				) {
+					const keyBytes = Buffer.allocUnsafe(req.algorithm.length / 8);
+					randomFillSync(keyBytes);
+					return JSON.stringify({
+						key: {
+							type: "secret",
+							algorithm: req.algorithm,
+							extractable: req.extractable,
+							usages: req.usages,
+							_raw: keyBytes.toString("base64"),
+						},
+					});
+				}
+				if (algoName === "HMAC") {
+					const hashName =
+						typeof req.algorithm.hash === "string"
+							? req.algorithm.hash
+							: req.algorithm.hash.name;
+					const hashLens: Record<string, number> = {
+						"SHA-1": 20,
+						"SHA-256": 32,
+						"SHA-384": 48,
+						"SHA-512": 64,
+					};
+					const len = req.algorithm.length
+						? req.algorithm.length / 8
+						: hashLens[hashName] || 32;
+					const keyBytes = Buffer.allocUnsafe(len);
+					randomFillSync(keyBytes);
+					return JSON.stringify({
+						key: {
+							type: "secret",
+							algorithm: req.algorithm,
+							extractable: req.extractable,
+							usages: req.usages,
+							_raw: keyBytes.toString("base64"),
+						},
+					});
+				}
+				if (
+					algoName === "RSASSA-PKCS1-v1_5" ||
+					algoName === "RSA-OAEP" ||
+					algoName === "RSA-PSS"
+				) {
+					let publicExponent = 65537;
+					if (req.algorithm.publicExponent) {
+						const expBytes = Buffer.from(
+							req.algorithm.publicExponent,
+							"base64",
+						);
+						publicExponent = 0;
+						for (const b of expBytes) {
+							publicExponent = (publicExponent << 8) | b;
+						}
+					}
+					const { publicKey, privateKey } = generateKeyPairSync("rsa", {
+						modulusLength: req.algorithm.modulusLength || 2048,
+						publicExponent,
+						publicKeyEncoding: {
+							type: "spki" as const,
+							format: "pem" as const,
+						},
+						privateKeyEncoding: {
+							type: "pkcs8" as const,
+							format: "pem" as const,
+						},
+					});
+					return JSON.stringify({
+						publicKey: {
+							type: "public",
+							algorithm: req.algorithm,
+							extractable: req.extractable,
+							usages: req.usages.filter((u: string) =>
+								["verify", "encrypt", "wrapKey"].includes(u),
+							),
+							_pem: publicKey,
+						},
+						privateKey: {
+							type: "private",
+							algorithm: req.algorithm,
+							extractable: req.extractable,
+							usages: req.usages.filter((u: string) =>
+								["sign", "decrypt", "unwrapKey"].includes(u),
+							),
+							_pem: privateKey,
+						},
+					});
+				}
+				throw new Error(`Unsupported key algorithm: ${algoName}`);
+			}
+			case "importKey": {
+				const { format, keyData, algorithm, extractable, usages } = req;
+				if (format === "raw") {
+					return JSON.stringify({
+						key: {
+							type: "secret",
+							algorithm,
+							extractable,
+							usages,
+							_raw: keyData,
+						},
+					});
+				}
+				if (format === "jwk") {
+					const jwk =
+						typeof keyData === "string" ? JSON.parse(keyData) : keyData;
+					if (jwk.kty === "oct") {
+						const raw = Buffer.from(jwk.k, "base64url");
+						return JSON.stringify({
+							key: {
+								type: "secret",
+								algorithm,
+								extractable,
+								usages,
+								_raw: raw.toString("base64"),
+							},
+						});
+					}
+					if (jwk.d) {
+						const keyObj = createPrivateKey({ key: jwk, format: "jwk" });
+						const pem = keyObj.export({
+							type: "pkcs8",
+							format: "pem",
+						}) as string;
+						return JSON.stringify({
+							key: { type: "private", algorithm, extractable, usages, _pem: pem },
+						});
+					}
+					const keyObj = createPublicKey({ key: jwk, format: "jwk" });
+					const pem = keyObj.export({ type: "spki", format: "pem" }) as string;
+					return JSON.stringify({
+						key: { type: "public", algorithm, extractable, usages, _pem: pem },
+					});
+				}
+				if (format === "pkcs8") {
+					const keyBuf = Buffer.from(keyData, "base64");
+					const keyObj = createPrivateKey({
+						key: keyBuf,
+						format: "der",
+						type: "pkcs8",
+					});
+					const pem = keyObj.export({
+						type: "pkcs8",
+						format: "pem",
+					}) as string;
+					return JSON.stringify({
+						key: { type: "private", algorithm, extractable, usages, _pem: pem },
+					});
+				}
+				if (format === "spki") {
+					const keyBuf = Buffer.from(keyData, "base64");
+					const keyObj = createPublicKey({
+						key: keyBuf,
+						format: "der",
+						type: "spki",
+					});
+					const pem = keyObj.export({ type: "spki", format: "pem" }) as string;
+					return JSON.stringify({
+						key: { type: "public", algorithm, extractable, usages, _pem: pem },
+					});
+				}
+				throw new Error(`Unsupported import format: ${format}`);
+			}
+			case "exportKey": {
+				const { format, key } = req;
+				if (format === "raw") {
+					if (!key._raw)
+						throw new Error("Cannot export asymmetric key as raw");
+					return JSON.stringify({
+						data: key._raw,
+					});
+				}
+				if (format === "jwk") {
+					if (key._raw) {
+						const raw = Buffer.from(key._raw, "base64");
+						return JSON.stringify({
+							jwk: {
+								kty: "oct",
+								k: raw.toString("base64url"),
+								ext: key.extractable,
+								key_ops: key.usages,
+							},
+						});
+					}
+					const keyObj =
+						key.type === "private"
+							? createPrivateKey(key._pem)
+							: createPublicKey(key._pem);
+					return JSON.stringify({
+						jwk: keyObj.export({ format: "jwk" }),
+					});
+				}
+				if (format === "pkcs8") {
+					if (key.type !== "private")
+						throw new Error("Cannot export non-private key as pkcs8");
+					const keyObj = createPrivateKey(key._pem);
+					const der = keyObj.export({
+						type: "pkcs8",
+						format: "der",
+					}) as Buffer;
+					return JSON.stringify({ data: der.toString("base64") });
+				}
+				if (format === "spki") {
+					const keyObj =
+						key.type === "private"
+							? createPublicKey(createPrivateKey(key._pem))
+							: createPublicKey(key._pem);
+					const der = keyObj.export({
+						type: "spki",
+						format: "der",
+					}) as Buffer;
+					return JSON.stringify({ data: der.toString("base64") });
+				}
+				throw new Error(`Unsupported export format: ${format}`);
+			}
+			case "encrypt": {
+				const { algorithm, key, data } = req;
+				const rawKey = Buffer.from(key._raw, "base64");
+				const plaintext = Buffer.from(data, "base64");
+				const algoName = algorithm.name;
+				if (algoName === "AES-GCM") {
+					const iv = Buffer.from(algorithm.iv, "base64");
+					const tagLength = (algorithm.tagLength || 128) / 8;
+					const cipher = createCipheriv(
+						`aes-${rawKey.length * 8}-gcm` as any,
+						rawKey,
+						iv,
+						{ authTagLength: tagLength } as any,
+					) as any;
+					if (algorithm.additionalData) {
+						cipher.setAAD(Buffer.from(algorithm.additionalData, "base64"));
+					}
+					const encrypted = Buffer.concat([
+						cipher.update(plaintext),
+						cipher.final(),
+					]);
+					const authTag = cipher.getAuthTag();
+					return JSON.stringify({
+						data: Buffer.concat([encrypted, authTag]).toString("base64"),
+					});
+				}
+				if (algoName === "AES-CBC") {
+					const iv = Buffer.from(algorithm.iv, "base64");
+					const cipher = createCipheriv(
+						`aes-${rawKey.length * 8}-cbc` as any,
+						rawKey,
+						iv,
+					);
+					const encrypted = Buffer.concat([
+						cipher.update(plaintext),
+						cipher.final(),
+					]);
+					return JSON.stringify({ data: encrypted.toString("base64") });
+				}
+				throw new Error(`Unsupported encrypt algorithm: ${algoName}`);
+			}
+			case "decrypt": {
+				const { algorithm, key, data } = req;
+				const rawKey = Buffer.from(key._raw, "base64");
+				const ciphertext = Buffer.from(data, "base64");
+				const algoName = algorithm.name;
+				if (algoName === "AES-GCM") {
+					const iv = Buffer.from(algorithm.iv, "base64");
+					const tagLength = (algorithm.tagLength || 128) / 8;
+					const encData = ciphertext.subarray(
+						0,
+						ciphertext.length - tagLength,
+					);
+					const authTag = ciphertext.subarray(
+						ciphertext.length - tagLength,
+					);
+					const decipher = createDecipheriv(
+						`aes-${rawKey.length * 8}-gcm` as any,
+						rawKey,
+						iv,
+						{ authTagLength: tagLength } as any,
+					) as any;
+					decipher.setAuthTag(authTag);
+					if (algorithm.additionalData) {
+						decipher.setAAD(
+							Buffer.from(algorithm.additionalData, "base64"),
+						);
+					}
+					const decrypted = Buffer.concat([
+						decipher.update(encData),
+						decipher.final(),
+					]);
+					return JSON.stringify({ data: decrypted.toString("base64") });
+				}
+				if (algoName === "AES-CBC") {
+					const iv = Buffer.from(algorithm.iv, "base64");
+					const decipher = createDecipheriv(
+						`aes-${rawKey.length * 8}-cbc` as any,
+						rawKey,
+						iv,
+					);
+					const decrypted = Buffer.concat([
+						decipher.update(ciphertext),
+						decipher.final(),
+					]);
+					return JSON.stringify({ data: decrypted.toString("base64") });
+				}
+				throw new Error(`Unsupported decrypt algorithm: ${algoName}`);
+			}
+			case "sign": {
+				const { key, data } = req;
+				const dataBytes = Buffer.from(data, "base64");
+				const algoName = key.algorithm.name;
+				if (algoName === "HMAC") {
+					const rawKey = Buffer.from(key._raw, "base64");
+					const hashAlgo = normalizeHash(key.algorithm.hash);
+					return JSON.stringify({
+						data: createHmac(hashAlgo, rawKey)
+							.update(dataBytes)
+							.digest("base64"),
+					});
+				}
+				if (algoName === "RSASSA-PKCS1-v1_5") {
+					const hashAlgo = normalizeHash(key.algorithm.hash);
+					const pkey = createPrivateKey(key._pem);
+					return JSON.stringify({
+						data: sign(hashAlgo, dataBytes, pkey).toString("base64"),
+					});
+				}
+				throw new Error(`Unsupported sign algorithm: ${algoName}`);
+			}
+			case "verify": {
+				const { key, signature, data } = req;
+				const dataBytes = Buffer.from(data, "base64");
+				const sigBytes = Buffer.from(signature, "base64");
+				const algoName = key.algorithm.name;
+				if (algoName === "HMAC") {
+					const rawKey = Buffer.from(key._raw, "base64");
+					const hashAlgo = normalizeHash(key.algorithm.hash);
+					const expected = createHmac(hashAlgo, rawKey)
+						.update(dataBytes)
+						.digest();
+					if (expected.length !== sigBytes.length)
+						return JSON.stringify({ result: false });
+					return JSON.stringify({
+						result: timingSafeEqual(expected, sigBytes),
+					});
+				}
+				if (algoName === "RSASSA-PKCS1-v1_5") {
+					const hashAlgo = normalizeHash(key.algorithm.hash);
+					const pkey = createPublicKey(key._pem);
+					return JSON.stringify({
+						result: verify(hashAlgo, dataBytes, pkey, sigBytes),
+					});
+				}
+				throw new Error(`Unsupported verify algorithm: ${algoName}`);
+			}
+			default:
+				throw new Error(`Unsupported subtle operation: ${req.op}`);
+		}
+	});
+	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoSubtle, cryptoSubtleRef);
 
 	// Set up fs References (stubbed if filesystem is disabled)
 	{

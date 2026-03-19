@@ -189,6 +189,11 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host crypto bridge reference for generateKeyPairSync.",
 	},
 	{
+		name: "_cryptoSubtle",
+		classification: "hardened",
+		rationale: "Host crypto bridge reference for Web Crypto subtle operations.",
+	},
+	{
 		name: "_fsReadFile",
 		classification: "hardened",
 		rationale: "Host filesystem bridge reference.",

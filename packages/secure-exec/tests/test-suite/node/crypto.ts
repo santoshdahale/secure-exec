@@ -862,4 +862,310 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 		expect(result.errorMessage).toBeUndefined();
 		expect((result.exports as any).valid).toBe(false);
 	});
+
+	// crypto.subtle (Web Crypto API) tests
+
+	it("subtle.digest('SHA-256', data) matches createHash output", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const data = new TextEncoder().encode('hello');
+				const hashBuf = await crypto.subtle.digest('SHA-256', data);
+				const hashHex = Buffer.from(hashBuf).toString('hex');
+				const nodeHex = crypto.createHash('sha256').update('hello').digest('hex');
+				module.exports = { hashHex, nodeHex, match: hashHex === nodeHex };
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.match).toBe(true);
+		expect(exports.hashHex).toBe(
+			"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+		);
+	});
+
+	it("subtle.digest supports SHA-1, SHA-384, SHA-512", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const data = new TextEncoder().encode('test');
+				const sha1 = Buffer.from(await crypto.subtle.digest('SHA-1', data)).toString('hex');
+				const sha384 = Buffer.from(await crypto.subtle.digest('SHA-384', data)).toString('hex');
+				const sha512 = Buffer.from(await crypto.subtle.digest('SHA-512', data)).toString('hex');
+				module.exports = { sha1, sha384, sha512 };
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.sha1).toBe("a94a8fe5ccb19ba61c4c0873d391e987982fbbd3");
+		expect(exports.sha384).toBe(
+			"768412320f7b0aa5812fce428dc4706b3cae50e02a64caa16a782249bfe8efc4b7ef1ccb126255d196047dfedf17a0a9",
+		);
+		expect(exports.sha512).toBe(
+			"ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff",
+		);
+	});
+
+	it("subtle.digest accepts algorithm object { name: 'SHA-256' }", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const data = new TextEncoder().encode('hello');
+				const hashBuf = await crypto.subtle.digest({ name: 'SHA-256' }, data);
+				module.exports = { hex: Buffer.from(hashBuf).toString('hex') };
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect((result.exports as any).hex).toBe(
+			"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+		);
+	});
+
+	it("subtle.generateKey + encrypt/decrypt AES-GCM roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const key = await crypto.subtle.generateKey(
+					{ name: 'AES-GCM', length: 256 },
+					true,
+					['encrypt', 'decrypt']
+				);
+				const iv = crypto.randomBytes(12);
+				const plaintext = new TextEncoder().encode('secret message');
+				const encrypted = await crypto.subtle.encrypt(
+					{ name: 'AES-GCM', iv },
+					key,
+					plaintext
+				);
+				const decrypted = await crypto.subtle.decrypt(
+					{ name: 'AES-GCM', iv },
+					key,
+					encrypted
+				);
+				const decryptedText = new TextDecoder().decode(decrypted);
+				module.exports = {
+					match: decryptedText === 'secret message',
+					encryptedLen: encrypted.byteLength,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.match).toBe(true);
+		// AES-GCM: ciphertext length = plaintext + 16 byte auth tag
+		expect(exports.encryptedLen).toBe(14 + 16);
+	});
+
+	it("subtle.generateKey + encrypt/decrypt AES-CBC roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const key = await crypto.subtle.generateKey(
+					{ name: 'AES-CBC', length: 128 },
+					true,
+					['encrypt', 'decrypt']
+				);
+				const iv = crypto.randomBytes(16);
+				const plaintext = new TextEncoder().encode('CBC test data!!');
+				const encrypted = await crypto.subtle.encrypt(
+					{ name: 'AES-CBC', iv },
+					key,
+					plaintext
+				);
+				const decrypted = await crypto.subtle.decrypt(
+					{ name: 'AES-CBC', iv },
+					key,
+					encrypted
+				);
+				const decryptedText = new TextDecoder().decode(decrypted);
+				module.exports = { match: decryptedText === 'CBC test data!!' };
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect((result.exports as any).match).toBe(true);
+	});
+
+	it("subtle.sign/verify HMAC roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const key = await crypto.subtle.generateKey(
+					{ name: 'HMAC', hash: 'SHA-256' },
+					true,
+					['sign', 'verify']
+				);
+				const data = new TextEncoder().encode('data to sign');
+				const signature = await crypto.subtle.sign('HMAC', key, data);
+				const valid = await crypto.subtle.verify('HMAC', key, signature, data);
+				const invalid = await crypto.subtle.verify(
+					'HMAC', key, signature,
+					new TextEncoder().encode('wrong data')
+				);
+				module.exports = { valid, invalid, sigLen: signature.byteLength };
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.valid).toBe(true);
+		expect(exports.invalid).toBe(false);
+		expect(exports.sigLen).toBe(32); // SHA-256 HMAC = 32 bytes
+	});
+
+	it("subtle.sign/verify RSASSA-PKCS1-v1_5 roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const keyPair = await crypto.subtle.generateKey(
+					{
+						name: 'RSASSA-PKCS1-v1_5',
+						modulusLength: 2048,
+						publicExponent: new Uint8Array([1, 0, 1]),
+						hash: 'SHA-256',
+					},
+					true,
+					['sign', 'verify']
+				);
+				const data = new TextEncoder().encode('RSA signing test');
+				const signature = await crypto.subtle.sign(
+					'RSASSA-PKCS1-v1_5', keyPair.privateKey, data
+				);
+				const valid = await crypto.subtle.verify(
+					'RSASSA-PKCS1-v1_5', keyPair.publicKey, signature, data
+				);
+				const invalid = await crypto.subtle.verify(
+					'RSASSA-PKCS1-v1_5', keyPair.publicKey, signature,
+					new TextEncoder().encode('tampered')
+				);
+				module.exports = {
+					valid, invalid,
+					sigLen: signature.byteLength,
+					pubType: keyPair.publicKey.type,
+					privType: keyPair.privateKey.type,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.valid).toBe(true);
+		expect(exports.invalid).toBe(false);
+		expect(exports.sigLen).toBe(256); // 2048-bit RSA = 256 bytes
+		expect(exports.pubType).toBe("public");
+		expect(exports.privType).toBe("private");
+	});
+
+	it("subtle.importKey raw + exportKey raw roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const rawKey = crypto.randomBytes(32);
+				const key = await crypto.subtle.importKey(
+					'raw', rawKey,
+					{ name: 'AES-GCM' },
+					true, ['encrypt', 'decrypt']
+				);
+				const exported = await crypto.subtle.exportKey('raw', key);
+				const match = Buffer.from(exported).equals(rawKey);
+				module.exports = {
+					match,
+					type: key.type,
+					extractable: key.extractable,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.match).toBe(true);
+		expect(exports.type).toBe("secret");
+		expect(exports.extractable).toBe(true);
+	});
+
+	it("subtle.importKey/exportKey jwk for HMAC key", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const key = await crypto.subtle.generateKey(
+					{ name: 'HMAC', hash: 'SHA-256' },
+					true, ['sign', 'verify']
+				);
+				const jwk = await crypto.subtle.exportKey('jwk', key);
+				const reimported = await crypto.subtle.importKey(
+					'jwk', jwk,
+					{ name: 'HMAC', hash: 'SHA-256' },
+					true, ['sign', 'verify']
+				);
+				const data = new TextEncoder().encode('test');
+				const sig1 = await crypto.subtle.sign('HMAC', key, data);
+				const sig2 = await crypto.subtle.sign('HMAC', reimported, data);
+				const match = Buffer.from(sig1).equals(Buffer.from(sig2));
+				module.exports = {
+					match,
+					kty: jwk.kty,
+					hasK: typeof jwk.k === 'string',
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.match).toBe(true);
+		expect(exports.kty).toBe("oct");
+		expect(exports.hasK).toBe(true);
+	});
+
+	it("subtle.digest returns ArrayBuffer", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const hashBuf = await crypto.subtle.digest('SHA-256', new Uint8Array([1, 2, 3]));
+				module.exports = {
+					isArrayBuffer: hashBuf instanceof ArrayBuffer,
+					byteLength: hashBuf.byteLength,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.isArrayBuffer).toBe(true);
+		expect(exports.byteLength).toBe(32);
+	});
+
+	it("subtle AES-GCM decrypt fails with wrong key", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const key1 = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+				const key2 = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+				const iv = crypto.randomBytes(12);
+				const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key1, new TextEncoder().encode('secret'));
+				try {
+					await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key2, encrypted);
+					module.exports = { threw: false };
+				} catch (e) {
+					module.exports = { threw: true };
+				}
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect((result.exports as any).threw).toBe(true);
+	});
 }

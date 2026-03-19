@@ -33,6 +33,7 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	cryptoSign: "_cryptoSign",
 	cryptoVerify: "_cryptoVerify",
 	cryptoGenerateKeyPairSync: "_cryptoGenerateKeyPairSync",
+	cryptoSubtle: "_cryptoSubtle",
 	fsReadFile: "_fsReadFile",
 	fsWriteFile: "_fsWriteFile",
 	fsReadFileBinary: "_fsReadFileBinary",
@@ -174,6 +175,7 @@ export type CryptoGenerateKeyPairSyncBridgeRef = BridgeApplySyncRef<
 	[string, string],
 	string
 >;
+export type CryptoSubtleBridgeRef = BridgeApplySyncRef<[string], string>;
 
 // Filesystem boundary contracts.
 export type FsReadFileBridgeRef = BridgeApplySyncPromiseRef<[string], string>;
