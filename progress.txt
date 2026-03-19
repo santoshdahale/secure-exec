@@ -2038,3 +2038,14 @@ PRD: ralph/kernel-hardening (46 stories)
   - `applyCustomGlobalExposurePolicy` only locks globals that exist on globalThis — absent hardened globals must be pre-defined as undefined
   - HTTP upgrade events require raw socket handling — bridged servers can't do this; use `initialExemptPorts` for external servers
 ---
+
+## 2026-03-18 - US-159
+- Express and Fastify project-matrix fixtures now pass in secure-exec (non-kernel matrix)
+- Root cause was already fixed by US-158 (SSRF loopback exemption for sandbox-spawned HTTP servers)
+- Both fixtures create HTTP servers on 127.0.0.1:0, then make requests to their own servers — SSRF protection was blocking these loopback requests before the US-158 fix added port exemption tracking
+- Verified: all 25 project-matrix tests pass, typecheck passes, SSRF protection tests pass
+- No code changes needed — just verified and marked as passing
+- **Learnings for future iterations:**
+  - When a story's root cause is fixed by a prerequisite story, verify with actual test runs rather than investigating code
+  - Project-matrix tests can be run individually with -t "fixture-name" filter
+---
