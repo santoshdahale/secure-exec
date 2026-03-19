@@ -214,4 +214,170 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 			hex: "5031fe3d989c6d1537a013fa6e739da23463fdaec3b70137d828e36ace221bd0",
 		});
 	});
+
+	it("randomBytes(32) returns 32-byte Buffer", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const buf = crypto.randomBytes(32);
+			module.exports = {
+				isBuffer: Buffer.isBuffer(buf),
+				length: buf.length,
+				notAllZero: buf.some(b => b !== 0),
+			};
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.isBuffer).toBe(true);
+		expect(exports.length).toBe(32);
+		expect(exports.notAllZero).toBe(true);
+	});
+
+	it("randomBytes supports callback variant", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			let cbResult;
+			crypto.randomBytes(16, (err, buf) => {
+				cbResult = { err, isBuffer: Buffer.isBuffer(buf), length: buf.length };
+			});
+			module.exports = cbResult;
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.err).toBeNull();
+		expect(exports.isBuffer).toBe(true);
+		expect(exports.length).toBe(16);
+	});
+
+	it("randomInt(0, 100) returns integer in [0, 100)", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const results = [];
+			for (let i = 0; i < 20; i++) {
+				results.push(crypto.randomInt(0, 100));
+			}
+			module.exports = {
+				allInRange: results.every(n => n >= 0 && n < 100),
+				allIntegers: results.every(n => Number.isInteger(n)),
+				count: results.length,
+			};
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.allInRange).toBe(true);
+		expect(exports.allIntegers).toBe(true);
+		expect(exports.count).toBe(20);
+	});
+
+	it("randomInt(max) uses 0 as default min", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const results = [];
+			for (let i = 0; i < 20; i++) {
+				results.push(crypto.randomInt(10));
+			}
+			module.exports = {
+				allInRange: results.every(n => n >= 0 && n < 10),
+				allIntegers: results.every(n => Number.isInteger(n)),
+			};
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.allInRange).toBe(true);
+		expect(exports.allIntegers).toBe(true);
+	});
+
+	it("randomInt throws on invalid range", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			try {
+				crypto.randomInt(10, 10);
+				module.exports = { threw: false };
+			} catch (e) {
+				module.exports = { threw: true, isRangeError: e instanceof RangeError };
+			}
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.threw).toBe(true);
+		expect(exports.isRangeError).toBe(true);
+	});
+
+	it("randomFillSync fills buffer with random bytes", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const buf = Buffer.alloc(16);
+			const returned = crypto.randomFillSync(buf);
+			module.exports = {
+				sameRef: returned === buf,
+				length: buf.length,
+				notAllZero: buf.some(b => b !== 0),
+			};
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.sameRef).toBe(true);
+		expect(exports.length).toBe(16);
+		expect(exports.notAllZero).toBe(true);
+	});
+
+	it("randomFillSync respects offset and size", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const buf = Buffer.alloc(16);
+			crypto.randomFillSync(buf, 4, 8);
+			module.exports = {
+				prefix: buf.slice(0, 4).every(b => b === 0),
+				suffix: buf.slice(12).every(b => b === 0),
+				middle: buf.slice(4, 12).some(b => b !== 0),
+			};
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.prefix).toBe(true);
+		expect(exports.suffix).toBe(true);
+		expect(exports.middle).toBe(true);
+	});
+
+	it("randomFill async variant works with callback", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const buf = Buffer.alloc(16);
+			let cbResult;
+			crypto.randomFill(buf, (err, filled) => {
+				cbResult = { err, sameRef: filled === buf, notAllZero: buf.some(b => b !== 0) };
+			});
+			module.exports = cbResult;
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.err).toBeNull();
+		expect(exports.sameRef).toBe(true);
+		expect(exports.notAllZero).toBe(true);
+	});
+
+	it("randomBytes rejects negative size", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			try {
+				crypto.randomBytes(-1);
+				module.exports = { threw: false };
+			} catch (e) {
+				module.exports = { threw: true, name: e.constructor.name };
+			}
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.threw).toBe(true);
+	});
 }

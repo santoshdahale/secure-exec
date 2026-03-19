@@ -332,6 +332,127 @@
             result.Hmac = SandboxHmac;
           }
 
+          // Overlay host-backed randomBytes/randomInt/randomFill/randomFillSync
+          if (typeof _cryptoRandomFill !== 'undefined') {
+            result.randomBytes = function randomBytes(size, callback) {
+              if (typeof size !== 'number' || size < 0 || size !== (size | 0)) {
+                var err = new TypeError('The "size" argument must be of type number. Received type ' + typeof size);
+                if (typeof callback === 'function') { callback(err); return; }
+                throw err;
+              }
+              if (size > 2147483647) {
+                var rangeErr = new RangeError('The value of "size" is out of range. It must be >= 0 && <= 2147483647. Received ' + size);
+                if (typeof callback === 'function') { callback(rangeErr); return; }
+                throw rangeErr;
+              }
+              // Generate in 65536-byte chunks (Web Crypto spec limit)
+              var buf = Buffer.alloc(size);
+              var offset = 0;
+              while (offset < size) {
+                var chunk = Math.min(size - offset, 65536);
+                var base64 = _cryptoRandomFill.applySync(undefined, [chunk]);
+                var hostBytes = Buffer.from(base64, 'base64');
+                hostBytes.copy(buf, offset);
+                offset += chunk;
+              }
+              if (typeof callback === 'function') {
+                callback(null, buf);
+                return;
+              }
+              return buf;
+            };
+
+            result.randomFillSync = function randomFillSync(buffer, offset, size) {
+              if (offset === undefined) offset = 0;
+              var byteLength = buffer.byteLength !== undefined ? buffer.byteLength : buffer.length;
+              if (size === undefined) size = byteLength - offset;
+              if (offset < 0 || size < 0 || offset + size > byteLength) {
+                throw new RangeError('The value of "offset + size" is out of range.');
+              }
+              var bytes = new Uint8Array(buffer.buffer || buffer, buffer.byteOffset ? buffer.byteOffset + offset : offset, size);
+              var filled = 0;
+              while (filled < size) {
+                var chunk = Math.min(size - filled, 65536);
+                var base64 = _cryptoRandomFill.applySync(undefined, [chunk]);
+                var hostBytes = Buffer.from(base64, 'base64');
+                bytes.set(hostBytes, filled);
+                filled += chunk;
+              }
+              return buffer;
+            };
+
+            result.randomFill = function randomFill(buffer, offsetOrCb, sizeOrCb, callback) {
+              var offset = 0;
+              var size;
+              var cb;
+              if (typeof offsetOrCb === 'function') {
+                cb = offsetOrCb;
+              } else if (typeof sizeOrCb === 'function') {
+                offset = offsetOrCb || 0;
+                cb = sizeOrCb;
+              } else {
+                offset = offsetOrCb || 0;
+                size = sizeOrCb;
+                cb = callback;
+              }
+              if (typeof cb !== 'function') {
+                throw new TypeError('Callback must be a function');
+              }
+              try {
+                result.randomFillSync(buffer, offset, size);
+                cb(null, buffer);
+              } catch (e) {
+                cb(e);
+              }
+            };
+
+            result.randomInt = function randomInt(minOrMax, maxOrCb, callback) {
+              var min, max, cb;
+              if (typeof maxOrCb === 'function' || maxOrCb === undefined) {
+                // randomInt(max[, callback])
+                min = 0;
+                max = minOrMax;
+                cb = maxOrCb;
+              } else {
+                // randomInt(min, max[, callback])
+                min = minOrMax;
+                max = maxOrCb;
+                cb = callback;
+              }
+              if (!Number.isSafeInteger(min)) {
+                var minErr = new TypeError('The "min" argument must be a safe integer');
+                if (typeof cb === 'function') { cb(minErr); return; }
+                throw minErr;
+              }
+              if (!Number.isSafeInteger(max)) {
+                var maxErr = new TypeError('The "max" argument must be a safe integer');
+                if (typeof cb === 'function') { cb(maxErr); return; }
+                throw maxErr;
+              }
+              if (max <= min) {
+                var rangeErr2 = new RangeError('The value of "max" is out of range. It must be greater than the value of "min" (' + min + ')');
+                if (typeof cb === 'function') { cb(rangeErr2); return; }
+                throw rangeErr2;
+              }
+              var range = max - min;
+              // Use rejection sampling for uniform distribution
+              var bytes = 6; // 48-bit entropy
+              var maxValid = Math.pow(2, 48) - (Math.pow(2, 48) % range);
+              var val;
+              do {
+                var base64 = _cryptoRandomFill.applySync(undefined, [bytes]);
+                var buf = Buffer.from(base64, 'base64');
+                val = buf.readUIntBE(0, bytes);
+              } while (val >= maxValid);
+              var result2 = min + (val % range);
+              if (typeof cb === 'function') {
+                cb(null, result2);
+                return;
+              }
+              return result2;
+            };
+          }
+
           return result;
         }
 

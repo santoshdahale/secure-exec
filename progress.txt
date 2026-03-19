@@ -2137,3 +2137,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - stream/web has BUILTIN_NAMED_EXPORTS and is a known built-in — should be documented alongside stream
   - diagnostics_channel Channel constructor is in BUILTIN_NAMED_EXPORTS but was missing from the nodejs-compat doc description
 ---
+
+## 2026-03-18 - US-169
+- What was implemented: crypto.randomBytes, crypto.randomInt, crypto.randomFillSync, crypto.randomFill in bridge
+- Files changed:
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added randomBytes, randomInt, randomFillSync, randomFill overlays in crypto module section
+  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 9 tests covering all four APIs
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts — regenerated (build artifact)
+- **Learnings for future iterations:**
+  - No new bridge ref needed — randomBytes/randomFill/randomFillSync reuse existing `_cryptoRandomFill` bridge; randomInt uses randomBytes for entropy
+  - Crypto randomness APIs go in require-setup.ts (the `if (name === 'crypto')` block), not process.ts — they are `require('crypto')` APIs, not Web Crypto
+  - randomBytes generates in 65536-byte chunks to respect Web Crypto spec limit on _cryptoRandomFill
+  - randomInt uses rejection sampling with 48-bit entropy for uniform distribution
+  - Callback-based tests must use synchronous callback capture (not Promise wrapping) since callbacks fire synchronously in sandbox
+  - Must run `pnpm run --filter @secure-exec/core build` after editing isolate-runtime sources to regenerate bundles
+---

@@ -2912,7 +2912,7 @@
         "Tests pass"
       ],
       "priority": 169,
-      "passes": false,
+      "passes": true,
       "notes": "Extends existing crypto randomness bridge. Many packages use randomBytes instead of getRandomValues."
     },
     {
