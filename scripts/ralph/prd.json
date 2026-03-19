@@ -3140,7 +3140,7 @@
         "Tests pass (project-matrix)"
       ],
       "priority": 182,
-      "passes": false,
+      "passes": true,
       "notes": "bcryptjs is pure JS bcrypt. Tests computation-heavy pure JS workload."
     },
     {
