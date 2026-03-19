@@ -6,6 +6,7 @@ import {
 	createBrowserRuntimeDriverFactory,
 } from "../../src/browser-runtime.js";
 import type { NodeRuntimeOptions } from "../../src/browser-runtime.js";
+import { runNodeCryptoSuite } from "./node/crypto.js";
 import { runNodeNetworkSuite } from "./node/network.js";
 import {
 	runNodeSuite,
@@ -22,7 +23,7 @@ type DisposableRuntime = {
 };
 
 const RUNTIME_TARGETS: NodeRuntimeTarget[] = ["node", "browser"];
-const NODE_SUITES: NodeSharedSuite[] = [runNodeSuite, runNodeNetworkSuite];
+const NODE_SUITES: NodeSharedSuite[] = [runNodeSuite, runNodeNetworkSuite, runNodeCryptoSuite];
 function isNodeTargetAvailable(): boolean {
 	return typeof process !== "undefined" && Boolean(process.versions?.node);
 }

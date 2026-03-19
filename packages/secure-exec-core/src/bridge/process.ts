@@ -929,6 +929,14 @@ process.off = process.removeListener;
     return 50 * 1024 * 1024;
   };
 
+// Match Node.js Object.prototype.toString.call(process) === '[object process]'
+Object.defineProperty(process, Symbol.toStringTag, {
+  value: "process",
+  writable: false,
+  configurable: true,
+  enumerable: false,
+});
+
 export default process as unknown as typeof nodeProcess;
 
 // ============================================================================

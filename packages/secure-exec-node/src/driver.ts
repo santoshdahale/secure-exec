@@ -285,6 +285,11 @@ export function createDefaultNetworkAdapter(options?: {
 	const servers = new Map<number, HttpServer>();
 	// Track ports owned by sandbox HTTP servers for loopback SSRF exemption
 	const ownedServerPorts = new Set<number>(options?.initialExemptPorts);
+	// Track upgrade sockets for bidirectional WebSocket relay
+	const upgradeSockets = new Map<number, import("stream").Duplex>();
+	let nextUpgradeSocketId = 1;
+	let onUpgradeSocketData: ((socketId: number, dataBase64: string) => void) | null = null;
+	let onUpgradeSocketEnd: ((socketId: number) => void) | null = null;
 
 	return {
 		async httpServerListen(options) {
@@ -345,6 +350,49 @@ export function createDefaultNetworkAdapter(options?: {
 				}
 			});
 
+			// Handle HTTP upgrade requests (WebSocket, etc.)
+			server.on("upgrade", (req, socket, head) => {
+				if (!options.onUpgrade) {
+					socket.destroy();
+					return;
+				}
+				const socketId = nextUpgradeSocketId++;
+				upgradeSockets.set(socketId, socket);
+
+				const headers: Record<string, string> = {};
+				Object.entries(req.headers).forEach(([key, value]) => {
+					if (typeof value === "string") {
+						headers[key] = value;
+					} else if (Array.isArray(value)) {
+						headers[key] = value[0] ?? "";
+					}
+				});
+
+				// Forward data from real socket to sandbox
+				socket.on("data", (chunk) => {
+					if (options.onUpgradeSocketData) {
+						options.onUpgradeSocketData(socketId, chunk.toString("base64"));
+					}
+				});
+				socket.on("close", () => {
+					if (options.onUpgradeSocketEnd) {
+						options.onUpgradeSocketEnd(socketId);
+					}
+					upgradeSockets.delete(socketId);
+				});
+
+				options.onUpgrade(
+					{
+						method: req.method || "GET",
+						url: req.url || "/",
+						headers,
+						rawHeaders: req.rawHeaders || [],
+					},
+					head.toString("base64"),
+					socketId,
+				);
+			});
+
 			await new Promise<void>((resolve, reject) => {
 				const onListening = () => resolve();
 				const onError = (err: Error) => reject(err);
@@ -388,6 +436,33 @@ export function createDefaultNetworkAdapter(options?: {
 			});
 
 			servers.delete(serverId);
+		},
+
+		upgradeSocketWrite(socketId, dataBase64) {
+			const socket = upgradeSockets.get(socketId);
+			if (socket && !socket.destroyed) {
+				socket.write(Buffer.from(dataBase64, "base64"));
+			}
+		},
+
+		upgradeSocketEnd(socketId) {
+			const socket = upgradeSockets.get(socketId);
+			if (socket && !socket.destroyed) {
+				socket.end();
+			}
+		},
+
+		upgradeSocketDestroy(socketId) {
+			const socket = upgradeSockets.get(socketId);
+			if (socket) {
+				socket.destroy();
+				upgradeSockets.delete(socketId);
+			}
+		},
+
+		setUpgradeSocketCallbacks(callbacks) {
+			onUpgradeSocketData = callbacks.onData;
+			onUpgradeSocketEnd = callbacks.onEnd;
 		},
 
 		async fetch(url, options) {
@@ -558,13 +633,30 @@ export function createDefaultNetworkAdapter(options?: {
 						if (typeof v === "string") headers[k] = v;
 						else if (Array.isArray(v)) headers[k] = v.join(", ");
 					});
-					socket.destroy();
+
+					// Keep socket alive for WebSocket data relay
+					const socketId = nextUpgradeSocketId++;
+					upgradeSockets.set(socketId, socket);
+
+					socket.on("data", (chunk) => {
+						if (onUpgradeSocketData) {
+							onUpgradeSocketData(socketId, chunk.toString("base64"));
+						}
+					});
+					socket.on("close", () => {
+						if (onUpgradeSocketEnd) {
+							onUpgradeSocketEnd(socketId);
+						}
+						upgradeSockets.delete(socketId);
+					});
+
 					resolve({
 						status: res.statusCode || 101,
 						statusText: res.statusMessage || "Switching Protocols",
 						headers,
-						body: head.toString(),
+						body: head.toString("base64"),
 						url,
+						upgradeSocketId: socketId,
 					});
 				});
 

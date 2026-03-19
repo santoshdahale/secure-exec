@@ -24,6 +24,16 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	scheduleTimer: "_scheduleTimer",
 	cryptoRandomFill: "_cryptoRandomFill",
 	cryptoRandomUuid: "_cryptoRandomUUID",
+	cryptoHashDigest: "_cryptoHashDigest",
+	cryptoHmacDigest: "_cryptoHmacDigest",
+	cryptoPbkdf2: "_cryptoPbkdf2",
+	cryptoScrypt: "_cryptoScrypt",
+	cryptoCipheriv: "_cryptoCipheriv",
+	cryptoDecipheriv: "_cryptoDecipheriv",
+	cryptoSign: "_cryptoSign",
+	cryptoVerify: "_cryptoVerify",
+	cryptoGenerateKeyPairSync: "_cryptoGenerateKeyPairSync",
+	cryptoSubtle: "_cryptoSubtle",
 	fsReadFile: "_fsReadFile",
 	fsWriteFile: "_fsWriteFile",
 	fsReadFileBinary: "_fsReadFileBinary",
@@ -53,6 +63,9 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	networkHttpRequestRaw: "_networkHttpRequestRaw",
 	networkHttpServerListenRaw: "_networkHttpServerListenRaw",
 	networkHttpServerCloseRaw: "_networkHttpServerCloseRaw",
+	upgradeSocketWriteRaw: "_upgradeSocketWriteRaw",
+	upgradeSocketEndRaw: "_upgradeSocketEndRaw",
+	upgradeSocketDestroyRaw: "_upgradeSocketDestroyRaw",
 	ptySetRawMode: "_ptySetRawMode",
 	processConfig: "_processConfig",
 	osConfig: "_osConfig",
@@ -75,6 +88,9 @@ export const RUNTIME_BRIDGE_GLOBAL_KEYS = {
 	http2Module: "_http2Module",
 	dnsModule: "_dnsModule",
 	httpServerDispatch: "_httpServerDispatch",
+	httpServerUpgradeDispatch: "_httpServerUpgradeDispatch",
+	upgradeSocketData: "_upgradeSocketData",
+	upgradeSocketEnd: "_upgradeSocketEnd",
 	fsFacade: "_fs",
 	requireFrom: "_requireFrom",
 	moduleCache: "_moduleCache",
@@ -135,6 +151,37 @@ export type ProcessErrorBridgeRef = BridgeApplySyncRef<[string], void>;
 export type ScheduleTimerBridgeRef = BridgeApplyRef<[number], void>;
 export type CryptoRandomFillBridgeRef = BridgeApplySyncRef<[number], string>;
 export type CryptoRandomUuidBridgeRef = BridgeApplySyncRef<[], string>;
+export type CryptoHashDigestBridgeRef = BridgeApplySyncRef<[string, string], string>;
+export type CryptoHmacDigestBridgeRef = BridgeApplySyncRef<[string, string, string], string>;
+export type CryptoPbkdf2BridgeRef = BridgeApplySyncRef<
+	[string, string, number, number, string],
+	string
+>;
+export type CryptoScryptBridgeRef = BridgeApplySyncRef<
+	[string, string, number, string],
+	string
+>;
+export type CryptoCipherivBridgeRef = BridgeApplySyncRef<
+	[string, string, string, string],
+	string
+>;
+export type CryptoDecipherivBridgeRef = BridgeApplySyncRef<
+	[string, string, string, string, string],
+	string
+>;
+export type CryptoSignBridgeRef = BridgeApplySyncRef<
+	[string, string, string],
+	string
+>;
+export type CryptoVerifyBridgeRef = BridgeApplySyncRef<
+	[string, string, string, string],
+	boolean
+>;
+export type CryptoGenerateKeyPairSyncBridgeRef = BridgeApplySyncRef<
+	[string, string],
+	string
+>;
+export type CryptoSubtleBridgeRef = BridgeApplySyncRef<[string], string>;
 
 // Filesystem boundary contracts.
 export type FsReadFileBridgeRef = BridgeApplySyncPromiseRef<[string], string>;
@@ -205,6 +252,9 @@ export type NetworkDnsLookupRawBridgeRef = BridgeApplyRef<[string], string>;
 export type NetworkHttpRequestRawBridgeRef = BridgeApplyRef<[string, string], string>;
 export type NetworkHttpServerListenRawBridgeRef = BridgeApplyRef<[string], string>;
 export type NetworkHttpServerCloseRawBridgeRef = BridgeApplyRef<[number], void>;
+export type UpgradeSocketWriteRawBridgeRef = BridgeApplySyncRef<[number, string], void>;
+export type UpgradeSocketEndRawBridgeRef = BridgeApplySyncRef<[number], void>;
+export type UpgradeSocketDestroyRawBridgeRef = BridgeApplySyncRef<[number], void>;
 
 // PTY boundary contracts.
 export type PtySetRawModeBridgeRef = BridgeApplySyncRef<[boolean], void>;

@@ -1,8 +1,11 @@
 export {};
 
 import type {
+	CryptoGenerateKeyPairSyncBridgeRef,
 	CryptoRandomFillBridgeRef,
 	CryptoRandomUuidBridgeRef,
+	CryptoSignBridgeRef,
+	CryptoVerifyBridgeRef,
 	DynamicImportBridgeRef,
 	FsChmodBridgeRef,
 	FsChownBridgeRef,
@@ -43,6 +46,9 @@ import type {
 	ChildProcessSpawnSyncBridgeRef,
 	ChildProcessStdinCloseBridgeRef,
 	ChildProcessStdinWriteBridgeRef,
+	UpgradeSocketWriteRawBridgeRef,
+	UpgradeSocketEndRawBridgeRef,
+	UpgradeSocketDestroyRawBridgeRef,
 } from "../../../src/shared/bridge-contract.js";
 
 type RuntimeGlobalExposer = (name: string, value: unknown) => void;
@@ -83,11 +89,17 @@ declare global {
 	var _scheduleTimer: ScheduleTimerBridgeRef;
 	var _cryptoRandomFill: CryptoRandomFillBridgeRef;
 	var _cryptoRandomUUID: CryptoRandomUuidBridgeRef;
+	var _cryptoSign: CryptoSignBridgeRef;
+	var _cryptoVerify: CryptoVerifyBridgeRef;
+	var _cryptoGenerateKeyPairSync: CryptoGenerateKeyPairSyncBridgeRef;
 	var _networkFetchRaw: NetworkFetchRawBridgeRef;
 	var _networkDnsLookupRaw: NetworkDnsLookupRawBridgeRef;
 	var _networkHttpRequestRaw: NetworkHttpRequestRawBridgeRef;
 	var _networkHttpServerListenRaw: NetworkHttpServerListenRawBridgeRef;
 	var _networkHttpServerCloseRaw: NetworkHttpServerCloseRawBridgeRef;
+	var _upgradeSocketWriteRaw: UpgradeSocketWriteRawBridgeRef;
+	var _upgradeSocketEndRaw: UpgradeSocketEndRawBridgeRef;
+	var _upgradeSocketDestroyRaw: UpgradeSocketDestroyRawBridgeRef;
 	var _childProcessSpawnStart: ChildProcessSpawnStartBridgeRef;
 	var _childProcessStdinWrite: ChildProcessStdinWriteBridgeRef;
 	var _childProcessStdinClose: ChildProcessStdinCloseBridgeRef;

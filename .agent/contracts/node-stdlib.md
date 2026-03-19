@@ -130,7 +130,13 @@ The `crypto` module SHALL be classified as Stub (Tier 3). `getRandomValues()` an
 
 #### Scenario: Calling crypto.subtle.digest
 - **WHEN** sandboxed code calls `crypto.subtle.digest("SHA-256", data)`
-- **THEN** the call MUST throw an error indicating subtle crypto is not supported in sandbox
+- **THEN** the call MUST delegate to host `node:crypto` and return an ArrayBuffer containing the hash
+
+#### Scenario: crypto.subtle operations delegate to host
+- **WHEN** sandboxed code calls any `crypto.subtle` method (digest, encrypt, decrypt, sign, verify, generateKey, importKey, exportKey)
+- **THEN** the operation MUST delegate to host `node:crypto` via the `_cryptoSubtle` bridge ref
+- **AND** all cryptographic material MUST be transferred as base64-encoded JSON across the isolate boundary
+- **AND** CryptoKey objects in the sandbox MUST be opaque wrappers holding serialized key data
 
 ### Requirement: Unimplemented Module Tier Assignments
 The following modules SHALL be classified as Deferred (Tier 4): `net`, `tls`, `readline`, `perf_hooks`, `async_hooks`, `worker_threads`, `diagnostics_channel`. The following modules SHALL be classified as Unsupported (Tier 5): `dgram`, `http2` (full), `cluster`, `wasi`, `inspector`, `repl`, `trace_events`, `domain`.

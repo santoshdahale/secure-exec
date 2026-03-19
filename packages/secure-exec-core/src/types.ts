@@ -171,6 +171,16 @@ export interface NetworkServerListenOptions {
 	onRequest(
 		request: NetworkServerRequest,
 	): Promise<NetworkServerResponse> | NetworkServerResponse;
+	/** Called when an HTTP upgrade request arrives (e.g. WebSocket). */
+	onUpgrade?(
+		request: NetworkServerRequest,
+		head: string,
+		socketId: number,
+	): void;
+	/** Called when the real upgrade socket receives data from the remote peer. */
+	onUpgradeSocketData?(socketId: number, dataBase64: string): void;
+	/** Called when the real upgrade socket closes. */
+	onUpgradeSocketEnd?(socketId: number): void;
 }
 
 export interface NetworkAdapter {
@@ -178,6 +188,12 @@ export interface NetworkAdapter {
 		options: NetworkServerListenOptions,
 	): Promise<{ address: NetworkServerAddress | null }>;
 	httpServerClose?(serverId: number): Promise<void>;
+	/** Write data from the sandbox to a real upgrade socket on the host. */
+	upgradeSocketWrite?(socketId: number, dataBase64: string): void;
+	/** End a real upgrade socket on the host. */
+	upgradeSocketEnd?(socketId: number): void;
+	/** Destroy a real upgrade socket on the host. */
+	upgradeSocketDestroy?(socketId: number): void;
 	fetch(
 		url: string,
 		options: {
@@ -216,7 +232,13 @@ export interface NetworkAdapter {
 		body: string;
 		url: string;
 		trailers?: Record<string, string>;
+		upgradeSocketId?: number;
 	}>;
+	/** Register callbacks for client-side upgrade socket data push. */
+	setUpgradeSocketCallbacks?(callbacks: {
+		onData: (socketId: number, dataBase64: string) => void;
+		onEnd: (socketId: number) => void;
+	}): void;
 }
 
 export interface PermissionDecision {

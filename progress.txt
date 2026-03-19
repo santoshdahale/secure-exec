@@ -3,6 +3,10 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- NodeRuntimeDriver must emit result.errorMessage as stderr — V8 isolate errors (ReferenceError, SyntaxError) are returned in ExecResult, not thrown
+- isolated-vm preserves err.name but err.message excludes the class name — format as `${err.name}: ${err.message}` for Node.js-compatible error output
+- Stream polyfill prototype chain is patched in _patchPolyfill (require-setup.ts) — esbuild's circular-dep bundling breaks Readable→Stream inheritance; without patch, `instanceof Stream` fails (breaks node-fetch, undici, etc.)
+- Timing mitigation Date.now/performance.now use getter/setter (not writable:false) — setter is no-op for Node.js compat; configurable:false blocks re-definition
 - Claude binary at ~/.claude/local/claude — not on PATH by default; skip helpers must check this fallback location
 - Claude Code --output-format stream-json requires --verbose flag; uses ANTHROPIC_BASE_URL natively (no fetch interceptor)
 - Python WORKER_SOURCE is String.raw — use array.join("\n") for multiline Python code; f-strings with escaped quotes break
@@ -96,6 +100,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - tcgetattr returns a deep copy — callers cannot mutate internal state
 - /dev/fd/N in fdOpen → dup(N); VFS-level readDir/stat for /dev/fd are PID-unaware; use devFdReadDir(pid) and devFdStat(pid, fd) on KernelInterface for PID-aware operations
 - Device layer has DEVICE_DIRS set (/dev/fd, /dev/pts) for pseudo-directories — stat returns directory mode 0o755, readDir returns empty (PID context required for dynamic content)
+- diagnostics_channel.tracingChannel() stub must include traceSync/tracePromise/traceCallback — libraries (pino, etc.) call these directly
+- Project-matrix fixtures using pino: use process.stdout as destination (sonic-boom fd writes fail with EBADF in sandbox)
 - ResourceBudgets (maxOutputBytes, maxBridgeCalls, maxTimers, maxChildProcesses) flow: NodeRuntimeOptions → RuntimeDriverOptions → NodeExecutionDriver constructor
 - Bridge-side timer budget: inject `_maxTimers` number as global, bridge checks `_timers.size + _intervals.size >= _maxTimers` synchronously — host-side enforcement doesn't work because `_scheduleTimer.apply()` is async (Promise)
 - Bridge `_scheduleTimer.apply(undefined, [delay], { result: { promise: true } })` is async — host throws become unhandled Promise rejections, not catchable try/catch
@@ -110,15 +116,23 @@ PRD: ralph/kernel-hardening (46 stories)
 - Bridge fs.ts `bridgeCall()` helper wraps applySyncPromise calls with ENOENT/EACCES/EEXIST error re-creation — use it for ALL new bridge fs methods
 - runtime-node has two VFS adapters (createKernelVfsAdapter, createHostFallbackVfs) that both need new VFS methods forwarded
 - diagnostics_channel is Tier 4 (deferred) with a custom no-op stub in require-setup.ts — channels report no subscribers, publish is no-op; needed for Fastify compatibility
+- Sandbox fetch() accepts Request objects (not just strings/URLs) — axios fetch adapter passes Request to fetch(); extract .url/.method/.headers
+- Sandbox process has Symbol.toStringTag = "process" — required by axios/libraries that check Object.prototype.toString.call(process)
 - Fastify fixture uses `app.routing(req, res)` for programmatic dispatch — avoids light-my-request's deep ServerResponse dependency; `app.server.emit("request")` won't work because sandbox Server lacks full EventEmitter
 - Sandbox Server class needs `setTimeout`, `keepAliveTimeout`, `requestTimeout` properties for framework compatibility — added as no-ops
 - Moving a module from Unsupported (Tier 5) to Deferred (Tier 4) requires changes in: module-resolver.ts, require-setup.ts, node-stdlib.md contract, and adding BUILTIN_NAMED_EXPORTS entry
 - `declare module` for untyped npm packages must live in a `.d.ts` file (not `.ts`) — TypeScript treats it as augmentation in `.ts` files and fails with TS2665
+- Sandbox createPrivateKey/createPublicKey must validate PEM format (throw for non-PEM strings) — libraries like jsonwebtoken rely on the throw to fall through to createSecretKey
+- Sandbox createSecretKey creates SandboxKeyObject with type='secret' — needed by libraries checking key.type for symmetric algorithm validation
+- SandboxHmac must handle SandboxKeyObject as key (check key._pem property) — libraries pass KeyObject directly to crypto.createHmac()
 - Host httpRequest adapter must use `http` or `https` transport based on URL protocol — always using `https` breaks localhost HTTP requests from sandbox
 - To test sandbox http.request() client behavior, create an external nodeHttp server in the test code and have the sandbox request to it
 - NodeExecutionDriver split into 5 modules in src/node/: isolate-bootstrap.ts (types+utilities), module-resolver.ts, esm-compiler.ts, bridge-setup.ts, execution-lifecycle.ts; facade is execution-driver.ts (<300 lines)
 - Source policy tests (isolate-runtime-injection-policy, bridge-registry-policy) read specific source files by path — update them when moving code between files
 - esmModuleCache has a sibling esmModuleReverseCache (Map<ivm.Module, string>) for O(1) module→path lookup — both must be updated together and cleared together in execution.ts
+- wrapNetworkAdapter creates a new object — any new NetworkAdapter methods MUST be explicitly forwarded through wrapNetworkAdapter or they'll be undefined at bridge-setup
+- UpgradeSocket.emit must use .call(this) — libraries like ws use `this[Symbol(...)]` in event callbacks requiring proper `this` binding
+- Server-side HTTP upgrade relay: driver.ts adds server.on('upgrade') → applySync dispatches to sandbox → sandbox Server._emit('upgrade') → ws handles handshake → UpgradeSocket relays data bidirectionally through bridge
 
 ---
 
@@ -2104,4 +2118,380 @@ PRD: ralph/kernel-hardening (46 stories)
   - node-stdlib-browser ESM entry is broken (calls require.resolve('./mock/empty.js') on missing file)
   - Always use static lists for stdlib module detection, never runtime-import node-stdlib-browser
   - polyfills.ts still imports node-stdlib-browser but that's in the bundler path (lazy/async), not during module init
+---
+
+## 2026-03-18 - US-166
+- What was implemented: Updated cloudflare-workers-comparison.mdx to reflect current implementation state
+- Files changed:
+  - docs/cloudflare-workers-comparison.mdx — updated fs row (🟡→🟢, added cp/mkdtemp/opendir/glob/statfs/readv/fdatasync/fsync, moved chmod/chown/link/symlink/readlink/truncate/utimes from Deferred to Implemented), updated http row (added Agent pooling, upgrade, trailer support), changed async_hooks from ⚪ TBD to 🔴 Stub, changed diagnostics_channel from ⚪ TBD to 🔴 Stub, added punycode as 🟢 Supported, updated last-updated date to 2026-03-18
+- **Learnings for future iterations:**
+  - chmod/chown/link/symlink/readlink/truncate/utimes are implemented as bridge calls to host, not deferred
+  - http Agent has real connection pooling with per-host maxSockets, plus upgrade (101) and trailer support
+  - async_hooks has functional stubs (AsyncLocalStorage, AsyncResource, createHook) — not just no-ops
+  - diagnostics_channel stubs are sufficient for Fastify compatibility
+  - punycode is provided via node-stdlib-browser polyfill
+---
+
+## 2026-03-18 - US-167
+- Cross-referenced require-setup.ts, module-resolver.ts, bridge files, and polyfills against both docs
+- Fixed 3 tier mismatches in cloudflare-workers-comparison.mdx:
+  - worker_threads: ⛔ (Unsupported) → 🔴 (Stub) — it's deferred/requireable, not unsupported
+  - perf_hooks: ⚪ (TBD) → 🔴 (Stub) — it's deferred with stub APIs
+  - readline: ⚪ (TBD) → 🔴 (Stub) — it's deferred with stub APIs
+- Added missing entries to nodejs-compatibility.mdx:
+  - console: Tier 1 (Bridge) — was only mentioned in Logging section, not in matrix
+  - stream/web subpath: noted under stream entry
+  - diagnostics_channel: added Channel constructor to API listing
+- Files changed:
+  - docs/cloudflare-workers-comparison.mdx
+  - docs/nodejs-compatibility.mdx
+- **Learnings for future iterations:**
+  - Deferred modules (require succeeds, APIs throw) map to 🔴 Stub in CF comparison, not ⚪ TBD or ⛔ Unsupported
+  - console is bridge-implemented via console-formatter shim but not in BRIDGE_MODULES list — it's set up as a global override, not a requireable module
+  - stream/web has BUILTIN_NAMED_EXPORTS and is a known built-in — should be documented alongside stream
+  - diagnostics_channel Channel constructor is in BUILTIN_NAMED_EXPORTS but was missing from the nodejs-compat doc description
+---
+
+## 2026-03-18 - US-169
+- What was implemented: crypto.randomBytes, crypto.randomInt, crypto.randomFillSync, crypto.randomFill in bridge
+- Files changed:
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added randomBytes, randomInt, randomFillSync, randomFill overlays in crypto module section
+  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 9 tests covering all four APIs
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts — regenerated (build artifact)
+- **Learnings for future iterations:**
+  - No new bridge ref needed — randomBytes/randomFill/randomFillSync reuse existing `_cryptoRandomFill` bridge; randomInt uses randomBytes for entropy
+  - Crypto randomness APIs go in require-setup.ts (the `if (name === 'crypto')` block), not process.ts — they are `require('crypto')` APIs, not Web Crypto
+  - randomBytes generates in 65536-byte chunks to respect Web Crypto spec limit on _cryptoRandomFill
+  - randomInt uses rejection sampling with 48-bit entropy for uniform distribution
+  - Callback-based tests must use synchronous callback capture (not Promise wrapping) since callbacks fire synchronously in sandbox
+  - Must run `pnpm run --filter @secure-exec/core build` after editing isolate-runtime sources to regenerate bundles
+---
+
+## 2026-03-18 - US-170
+- What was implemented: crypto.pbkdf2, crypto.pbkdf2Sync, crypto.scrypt, and crypto.scryptSync in the bridge — three-layer pattern (host ref, contract key, sandbox overlay)
+- Files changed:
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — added cryptoPbkdf2/cryptoScrypt keys and typed ref aliases
+  - packages/secure-exec-node/src/bridge-setup.ts — added host-side ivm.References calling real Node.js pbkdf2Sync/scryptSync with base64 encoding
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added sandbox-side pbkdf2Sync/pbkdf2/scryptSync/scrypt overlays in the crypto polyfill patch
+  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 7 tests: pbkdf2Sync known value, pbkdf2 callback, pbkdf2 Buffer inputs, scryptSync known value, scryptSync defaults, scrypt callback with opts, scrypt callback without opts
+- **Learnings for future iterations:**
+  - pbkdf2/scrypt are one-shot functions (no stream accumulation like Hash/Hmac) — simpler bridge pattern: sandbox converts inputs to base64, calls host ref, converts result back
+  - scrypt options use both Node.js naming (N/r/p) and alias naming (cost/blockSize/parallelization) — sandbox overlay maps aliases to canonical names before passing to host
+  - Host-side scryptSync accepts options as a plain object — serialize via JSON.stringify across the isolate boundary
+  - All 34 crypto tests pass (27 existing + 7 new); typecheck passes across all packages
+---
+
+## 2026-03-18 - US-171
+- What was implemented: crypto.createCipheriv and crypto.createDecipheriv bridge support
+- Bridge design: guest accumulates update() chunks, host performs cipher/decipher on final()
+- GCM mode: host returns JSON with data + authTag; decipher accepts authTag via optionsJson
+- Supported algorithms: aes-128-cbc, aes-256-cbc, aes-128-gcm, aes-256-gcm
+- Also fixed missing _cryptoPbkdf2 and _cryptoScrypt entries in global-exposure.ts inventory
+- Files changed:
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — added CryptoCipherivBridgeRef, CryptoDecipherivBridgeRef types and HOST_BRIDGE_GLOBAL_KEYS entries
+  - packages/secure-exec-core/src/shared/global-exposure.ts — added inventory entries for _cryptoPbkdf2, _cryptoScrypt, _cryptoCipheriv, _cryptoDecipheriv
+  - packages/secure-exec-node/src/bridge-setup.ts — added host-side createCipheriv/createDecipheriv refs with GCM auth tag support
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added SandboxCipher and SandboxDecipher guest-side classes
+  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 7 tests: CBC/GCM roundtrips, auth tag verification, multi-chunk, hex encoding
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts — auto-generated
+- **Learnings for future iterations:**
+  - Cipher update() returns data (Buffer/string) unlike Hash.update() which returns `this` — accumulate-and-batch still works because final() returns all data
+  - createCipheriv/createDecipheriv with GCM need `as any` cast because TypeScript crypto types use separate CipherGCM/DecipherGCM for getAuthTag/setAuthTag
+  - bridge-registry-policy.test.ts enforces that ALL HOST_BRIDGE_GLOBAL_KEYS have matching NODE_CUSTOM_GLOBAL_INVENTORY entries — must add inventory entries for every new bridge key
+  - _cryptoPbkdf2 and _cryptoScrypt were missing from inventory (pre-existing gap) — fixed in this commit
+---
+
+## 2026-03-18 - US-172
+- What was implemented: crypto.sign, crypto.verify, crypto.generateKeyPairSync, crypto.generateKeyPair, crypto.createPublicKey, crypto.createPrivateKey, and KeyObject in bridge
+- Files changed:
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — added CryptoSignBridgeRef, CryptoVerifyBridgeRef, CryptoGenerateKeyPairSyncBridgeRef types and HOST_BRIDGE_GLOBAL_KEYS entries
+  - packages/secure-exec-core/src/shared/global-exposure.ts — added _cryptoSign, _cryptoVerify, _cryptoGenerateKeyPairSync to NODE_CUSTOM_GLOBAL_INVENTORY
+  - packages/secure-exec-core/isolate-runtime/src/common/runtime-globals.d.ts — added global type declarations for new bridge refs
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added sandbox-side sign, verify, generateKeyPairSync, generateKeyPair, createPublicKey, createPrivateKey, SandboxKeyObject
+  - packages/secure-exec-node/src/bridge-setup.ts — added host-side ivm.Reference implementations using Node.js crypto sign/verify/generateKeyPairSync/createPublicKey/createPrivateKey
+  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 7 tests: RSA sign/verify roundtrip, EC key pair signing, PEM encoding output, async generateKeyPair, createPublicKey/createPrivateKey from PEM, KeyObject.export, tamper rejection
+- **Learnings for future iterations:**
+  - Key material crosses isolate boundary as PEM strings (not binary) — host always generates PEM via spki/pkcs8 encoding
+  - SandboxKeyObject stores PEM as _pem property; sign/verify on sandbox side extract _pem to pass to host bridge
+  - Host sign/verify uses createPrivateKey/createPublicKey to reconstruct KeyObjects from PEM — this handles both raw PEM strings and KeyObject-wrapped keys
+  - generateKeyPairSync returns KeyObjects by default (no encoding options) or PEM strings when publicKeyEncoding/privateKeyEncoding are specified — mirrors Node.js behavior
+  - Three bridge refs suffice for all 6 API functions: sign, verify, and generateKeyPairSync; async variants (generateKeyPair) and KeyObject constructors (createPublicKey/createPrivateKey) are handled purely on the sandbox side
+---
+
+## 2026-03-18 - US-176
+- What was implemented: pg (node-postgres) project-matrix fixture verifying Pool, Client, types, Query classes load and have expected methods
+- Files changed:
+  - packages/secure-exec/tests/projects/pg-pass/package.json — new fixture with pg 8.13.1
+  - packages/secure-exec/tests/projects/pg-pass/fixture.json — pass expectation
+  - packages/secure-exec/tests/projects/pg-pass/src/index.js — imports pg, verifies Pool/Client/types/Query exports and prototype methods, checks type parser APIs and defaults module
+  - docs/nodejs-compatibility.mdx — added pg to Tested Packages table
+- **Learnings for future iterations:**
+  - pg Pool/Client constructors with config trigger net.Socket on pool.end() — avoid calling connect/end/query in sandbox fixtures
+  - Fixture tests class existence and prototype methods without instantiating Pool/Client (which attempt network connections)
+  - require("pg/lib/defaults") gives access to default config values (host, port) for verification without triggering network
+  - Query class is exported directly from pg as a named export
+---
+
+## 2026-03-18 - US-177
+- What was implemented: Added drizzle-orm project-matrix fixture that verifies ORM schema definition and query building in the sandbox
+- Files changed:
+  - packages/secure-exec/tests/projects/drizzle-pass/package.json — fixture package with drizzle-orm 0.45.1 dep
+  - packages/secure-exec/tests/projects/drizzle-pass/fixture.json — standard pass fixture config
+  - packages/secure-exec/tests/projects/drizzle-pass/src/index.js — defines pgTable schema, checks column metadata, verifies eq/and/sql operators
+  - docs/nodejs-compatibility.mdx — added drizzle-orm to Tested Packages table
+  - scripts/ralph/prd.json — marked US-177 passes: true
+- **Learnings for future iterations:**
+  - drizzle-orm CJS require works for both main entry ("drizzle-orm") and subpath ("drizzle-orm/pg-core")
+  - Table name accessed via Symbol.for("drizzle:Name"), not a plain property
+  - pgTable auto-adds "enableRLS" to column names — include it in sorted column list expectations
+  - drizzle-orm has zero dependencies — installs fast, good candidate for lightweight ORM testing
+  - e2e-project-matrix kernel tests fail for ALL fixtures (pre-existing), not a drizzle-specific issue
+---
+
+## 2026-03-18 - US-178
+- What was implemented: Added axios project-matrix fixture with http adapter + fetch bridge support
+- Files changed:
+  - packages/secure-exec/tests/projects/axios-pass/ — new fixture (package.json, fixture.json, src/index.js)
+  - packages/secure-exec-core/src/bridge/process.ts — added Symbol.toStringTag = "process" so Object.prototype.toString.call(process) returns "[object process]"
+  - packages/secure-exec-core/src/bridge/network.ts — fixed fetch() to accept Request objects (extract url/method/headers from Request input)
+  - docs/nodejs-compatibility.mdx — added axios to Tested Packages table
+- **Learnings for future iterations:**
+  - axios adapter selection: default order is ['xhr', 'http', 'fetch']; sandbox XHR is polyfill-based and unreliable, http adapter uses follow-redirects which has incompatible emit patterns, fetch adapter works best
+  - axios http adapter checks `utils.kindOf(process) === 'process'` via Object.prototype.toString.call — sandbox process object needed Symbol.toStringTag = "process"
+  - axios fetch adapter passes Request objects to fetch(), not just URL strings — sandbox fetch() must handle Request input by extracting .url, .method, .headers
+  - hasBrowserEnv check in axios: `typeof window !== 'undefined' && typeof document !== 'undefined'` — sandbox does NOT define window/document (V8 isolate), so this is false
+  - fixture uses `adapter: "fetch"` to explicitly select fetch adapter — this is valid sandbox-blind Node.js code (fetch adapter works in Node.js 18+)
+---
+
+## 2026-03-18 - US-179
+- What was implemented: Added ws (WebSocket) project-matrix fixture testing module loading, API shape, Receiver frame parsing, Sender frame construction, and WebSocketServer noServer mode
+- Files changed:
+  - packages/secure-exec/tests/projects/ws-pass/fixture.json — fixture config
+  - packages/secure-exec/tests/projects/ws-pass/package.json — ws 8.18.0 dependency
+  - packages/secure-exec/tests/projects/ws-pass/src/index.js — tests WebSocket/WebSocketServer exports, prototype methods, constants, Receiver/Sender data processing, noServer mode
+  - docs/nodejs-compatibility.mdx — added ws to Tested Packages table
+- **Learnings for future iterations:**
+  - Sandbox HTTP server does not support WebSocket upgrade (HTTP 101 Switching Protocols) — dispatchServerRequest only handles regular request/response, no bidirectional streaming
+  - ws Receiver defaults to client mode (isServer=false) — expects unmasked frames; use MASK bit only for server-mode receivers
+  - ws Sender requires a socket with cork()/uncork()/write() methods — provide a complete mock when testing standalone
+  - Follow pg-pass/ssh2-pass pattern for packages needing external services: test module loading, API shape, and data-processing features without real connections
+  - ClientRequest in sandbox bridge lacks destroy() method — ws calls req.destroy() on failed upgrades, causing "stream.destroy is not a function" error
+---
+
+## 2026-03-18 - US-181
+- What was implemented: Added jsonwebtoken project-matrix fixture and fixed sandbox crypto key validation
+- Files changed:
+  - packages/secure-exec/tests/projects/jsonwebtoken-pass/package.json — new fixture package
+  - packages/secure-exec/tests/projects/jsonwebtoken-pass/fixture.json — fixture metadata
+  - packages/secure-exec/tests/projects/jsonwebtoken-pass/src/index.js — JWT sign/verify/decode test
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added createSecretKey, fixed createPrivateKey and createPublicKey to validate PEM format, updated SandboxHmac to handle SandboxKeyObject keys
+  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 4 tests: createSecretKey, createPrivateKey/createPublicKey PEM validation, HMAC with KeyObject
+  - docs/nodejs-compatibility.mdx — added jsonwebtoken to Tested Packages table
+- **Learnings for future iterations:**
+  - jsonwebtoken 9.0.2 uses createPrivateKey/createSecretKey/createPublicKey to normalize key material before signing — sandbox must implement all three
+  - Sandbox createPrivateKey/createPublicKey must validate PEM format (check for '-----BEGIN') and throw for non-PEM strings — otherwise libraries that try createPrivateKey first and fall back to createSecretKey in catch blocks never reach the fallback
+  - SandboxHmac must handle SandboxKeyObject as key (check key._pem) — jwa passes KeyObject directly to crypto.createHmac()
+  - createSecretKey creates a KeyObject with type='secret' — needed for HS256/HS384/HS512 algorithm validation in jsonwebtoken
+---
+
+## 2026-03-18 - US-182
+- What was implemented: Added bcryptjs project-matrix fixture; fixed Date.now timing mitigation to use getter/setter instead of writable:false
+- Files changed:
+  - packages/secure-exec/tests/projects/bcryptjs-pass/ — new fixture (fixture.json, package.json, src/index.js, pnpm-lock.yaml)
+  - packages/secure-exec-core/isolate-runtime/src/inject/apply-timing-mitigation-freeze.ts — changed Date.now freeze from writable:false to getter/setter (no-op setter) for Node.js compat
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts — regenerated from build
+  - packages/secure-exec/tests/runtime-driver/node/index.test.ts — updated "Date.now cannot be overridden" test to expect assignThrew:false (setter is silently ignored)
+  - docs/nodejs-compatibility.mdx — added bcryptjs to Tested Packages table
+- **Learnings for future iterations:**
+  - bcryptjs does `Date.now = Date.now || function()...` which assigns to Date.now even when it already exists; writable:false causes TypeError in strict mode
+  - Fix: use getter/setter pattern (get returns frozen fn, set is no-op) instead of writable:false — silently ignores writes while keeping Date.now frozen
+  - Object.defineProperty with configurable:false still blocks re-definition, so security is maintained
+  - Must rebuild core (`pnpm turbo run build --filter=@secure-exec/core`) after changing isolate-runtime source files
+  - Generated isolate-runtime.ts must be committed alongside source changes
+---
+
+## 2026-03-18 - US-183
+- What was implemented: Added lodash-es project-matrix fixture to verify large ESM module resolution at scale in the sandbox
+- Files changed:
+  - packages/secure-exec/tests/projects/lodash-es-pass/ — new fixture (fixture.json, package.json, src/index.js, pnpm-lock.yaml)
+  - docs/nodejs-compatibility.mdx — added lodash-es to Tested Packages table
+- **Learnings for future iterations:**
+  - lodash-es individual module imports (e.g., `lodash-es/map.js`) work fine with ESM — no need to use barrel import
+  - Fixture passed on first attempt with no sandbox compatibility issues
+---
+
+## 2026-03-18 - US-184
+- What was implemented: chalk project-matrix fixture verifying terminal string styling with ANSI escape codes
+- Files changed:
+  - packages/secure-exec/tests/projects/chalk-pass/fixture.json — fixture metadata
+  - packages/secure-exec/tests/projects/chalk-pass/package.json — chalk 5.4.1 ESM dependency
+  - packages/secure-exec/tests/projects/chalk-pass/src/index.js — exercises Chalk constructor with level 1, red/green/blue/bold/underline/nested/bgYellow/italic/cyan styles
+  - docs/nodejs-compatibility.mdx — added chalk to Tested Packages table
+- **Learnings for future iterations:**
+  - chalk v5 exports `Chalk` as a named export (not `chalk.Chalk`) — use `import { Chalk } from "chalk"` and `new Chalk({ level: 1 })` for deterministic ANSI output
+  - Forcing `level: 1` ensures basic ANSI codes regardless of TTY detection, producing identical output in host and sandbox
+---
+
+## 2026-03-18 - US-185
+- Added pino project-matrix fixture (pino-pass)
+- Fixed diagnostics_channel.tracingChannel() stub to include traceSync/tracePromise/traceCallback methods
+- Files changed:
+  - packages/secure-exec/tests/projects/pino-pass/ (new fixture: fixture.json, package.json, src/index.js)
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts (diagnostics_channel stub fix)
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts (rebuilt)
+  - docs/nodejs-compatibility.mdx (added pino to Tested Packages table)
+- **Learnings for future iterations:**
+  - pino uses sonic-boom (async fd writes via fs.writeSync) by default — sandbox doesn't support direct fd writes, so use process.stdout as destination
+  - pino.destination({ dest: 1, sync: true }) fails in sandbox with EBADF; pino({}, process.stdout) works
+  - diagnostics_channel.tracingChannel() must return traceSync/tracePromise/traceCallback no-op wrappers that execute the passed function — libraries like pino call these directly
+  - Use `timestamp: false, base: undefined` with pino for deterministic output (removes time, pid, hostname)
+---
+
+## 2026-03-18 - US-186
+- Implemented node-fetch project-matrix fixture (v2.7.0, CJS)
+- Fixed stream polyfill prototype chain: esbuild's circular-dep resolution between stream-browserify and readable-stream broke `instanceof Stream` — Readable extended EventEmitter directly instead of Stream; patched in `_patchPolyfill` to insert Stream.prototype back into the chain
+- Files changed:
+  - packages/secure-exec/tests/projects/node-fetch-pass/ (new fixture)
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts (stream patch)
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts (generated)
+  - docs/nodejs-compatibility.mdx (Tested Packages table)
+- **Learnings for future iterations:**
+  - node-fetch v3 is ESM-only and uses socket.prependListener (not in bridge); use v2 for CJS compat
+  - `body instanceof Stream` check in node-fetch v2 was failing because esbuild's bundling of stream-browserify↔readable-stream circular dependency breaks the prototype chain (Readable → EventEmitter instead of Readable → Stream → EventEmitter)
+  - Stream polyfill patches go in `_patchPolyfill` in require-setup.ts; the generated file auto-updates on build
+---
+
+## 2026-03-18 - US-187
+- What was implemented: yaml project-matrix fixture testing YAML parse/stringify/document API
+- Files changed:
+  - packages/secure-exec/tests/projects/yaml-pass/fixture.json — fixture metadata
+  - packages/secure-exec/tests/projects/yaml-pass/package.json — depends on yaml@2.8.0
+  - packages/secure-exec/tests/projects/yaml-pass/src/index.js — parse, stringify, round-trip, parseDocument
+  - docs/nodejs-compatibility.mdx — added yaml to Tested Packages table
+- **Learnings for future iterations:**
+  - yaml package is pure JS, works out of the box in sandbox with no special handling
+  - Fixture tests parse, stringify, round-trip consistency, and document API
+---
+
+## 2026-03-18 - US-188
+- What was implemented: uuid project-matrix fixture testing UUID v4 generation/validation, deterministic v5 generation, and NIL UUID
+- Files changed:
+  - packages/secure-exec/tests/projects/uuid-pass/fixture.json — fixture metadata
+  - packages/secure-exec/tests/projects/uuid-pass/package.json — depends on uuid@11.1.0 (ESM)
+  - packages/secure-exec/tests/projects/uuid-pass/src/index.js — v4 validate, v5 deterministic, NIL validate
+  - docs/nodejs-compatibility.mdx — added uuid to Tested Packages table
+- **Learnings for future iterations:**
+  - uuid v4 output is random — only output validation results (valid/version booleans) for deterministic comparison
+  - uuid v5 with fixed namespace+name produces deterministic output safe for exact comparison
+  - uuid 11.1.0 works as ESM in sandbox with no special handling; exercises crypto.getRandomValues path
+---
+
+## 2026-03-18 - US-190
+- What was implemented: SSE (Server-Sent Events) streaming project-matrix fixture
+- Files changed:
+  - packages/secure-exec/tests/projects/sse-streaming-pass/fixture.json — fixture metadata
+  - packages/secure-exec/tests/projects/sse-streaming-pass/package.json — no external deps (uses only Node builtins)
+  - packages/secure-exec/tests/projects/sse-streaming-pass/src/index.js — SSE server + manual text/event-stream parser
+  - docs/nodejs-compatibility.mdx — added sse-streaming to Tested Packages table
+- **Learnings for future iterations:**
+  - SSE fixtures need no external deps — http.createServer + manual parsing covers the full SSE protocol
+  - SSE events are separated by double newlines; multi-line data fields join with \n (per spec)
+  - All output is deterministic since server sends fixed events and closes — no randomness or timing issues
+  - The fixture exercises: http.createServer, chunked transfer-encoding, Connection: keep-alive, streaming reads
+---
+
+## 2026-03-19 - US-191
+- What was implemented: Rewrote ws-pass fixture with full WebSocket server-client communication (text + binary echo). Implemented server-side HTTP upgrade support in the bridge (UpgradeSocket class, bidirectional data relay through host bridge references).
+- Files changed:
+  - packages/secure-exec/tests/projects/ws-pass/src/index.js — full rewrite: WebSocketServer on port 0, client connects, text + binary echo, event verification
+  - packages/secure-exec-core/src/bridge/network.ts — added UpgradeSocket class for bidirectional data relay, server upgrade dispatch, data/end push functions
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — added upgrade socket host/runtime bridge keys
+  - packages/secure-exec-core/src/shared/global-exposure.ts — added upgrade socket globals to inventory
+  - packages/secure-exec-core/src/shared/permissions.ts — forwarded upgradeSocketWrite/End/Destroy/setUpgradeSocketCallbacks through wrapNetworkAdapter
+  - packages/secure-exec-core/src/types.ts — added onUpgrade/onUpgradeSocketData/onUpgradeSocketEnd to NetworkServerListenOptions; upgradeSocketWrite/End/Destroy/setUpgradeSocketCallbacks to NetworkAdapter
+  - packages/secure-exec-core/isolate-runtime/src/common/runtime-globals.d.ts — added upgrade socket bridge ref types
+  - packages/secure-exec-core/src/index.ts — re-exported new bridge ref types
+  - packages/secure-exec/src/shared/bridge-contract.ts — re-exported new bridge ref types
+  - packages/secure-exec-node/src/bridge-setup.ts — added lazy upgrade dispatch/data/end refs; registered onUpgrade/onUpgradeSocketData/onUpgradeSocketEnd callbacks; added host write/end/destroy refs; called setUpgradeSocketCallbacks
+  - packages/secure-exec-node/src/driver.ts — added server.on('upgrade') handler in httpServerListen; kept client-side upgrade socket alive for data relay; added upgradeSocketWrite/End/Destroy/setUpgradeSocketCallbacks adapter methods
+- **Learnings for future iterations:**
+  - wrapNetworkAdapter in permissions.ts creates a NEW object — any new adapter methods MUST be forwarded through it or they'll be undefined at bridge-setup time
+  - Server-side HTTP upgrade: host server.on('upgrade') → applySync to sandbox → sandbox Server._emit('upgrade') → ws handles it
+  - Client-side HTTP upgrade: host req.on('upgrade') → keep socket alive → include upgradeSocketId in response JSON → sandbox creates UpgradeSocket
+  - UpgradeSocket.emit must call listeners with .call(this) — ws library's socketOnData uses `this[Symbol('websocket')]` which requires proper `this` binding
+  - UpgradeSocket needs _readableState.endEmitted and _writableState.finished stubs — ws checks these in socketOnClose
+  - UpgradeSocket.destroy/close must emit 'close' with false argument (hadError=false) for ws compatibility
+  - applySync from within applySync (host→sandbox→host reentrance) works in isolated-vm — the host Reference callback runs synchronously
+---
+
+## 2026-03-19 - US-192
+- Created shared Docker container test utility at packages/secure-exec/tests/utils/docker.ts
+- startContainer(image, opts) accepts port mappings, env vars, health check command, timeout
+- Returns { containerId, host, port, ports, stop() } — stop() is idempotent
+- skipUnlessDocker() skip helper follows project convention (returns string | false)
+- Auto-pulls images not present locally via execFileSync
+- Health check loop with configurable timeout (default 30s) and interval (default 500ms)
+- Self-test at packages/secure-exec/tests/utils/docker.test.ts (4 tests: basic start/exec/stop, port mapping, health check, env vars)
+- Files changed: packages/secure-exec/tests/utils/docker.ts, packages/secure-exec/tests/utils/docker.test.ts
+- **Learnings for future iterations:**
+  - Use execFileSync (not execSync with args.join(" ")) for docker CLI calls — shell interpretation breaks commands containing spaces, semicolons, pipes
+  - Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) is a clean synchronous sleep without spawning a shell process
+  - Docker port output format is "0.0.0.0:12345" — match /:(\d+)$/m to extract the host port
+  - afterAll cleanup in container tests ensures containers are removed even on test failure
+---
+
+## 2026-03-19 - US-193
+- Added ioredis project-matrix fixture at packages/secure-exec/tests/projects/ioredis-pass/
+- Implemented as import-only fixture (consistent with pg-pass, mysql2-pass) because net module is deferred-stubbed in sandbox — real TCP connections via net.Socket are impossible
+- Validates: Redis constructor, Cluster class, Command class, 13 prototype methods (connect, disconnect, quit, get, set, del, lpush, lrange, subscribe, unsubscribe, publish, pipeline, multi), pipeline/multi transaction APIs, Command building, event emitter interface, options parsing
+- Updated docs/nodejs-compatibility.mdx Tested Packages table with ioredis entry
+- Files changed: packages/secure-exec/tests/projects/ioredis-pass/{package.json,fixture.json,src/index.js}, docs/nodejs-compatibility.mdx
+- **Learnings for future iterations:**
+  - net module is a deferred stub in sandbox — require("net") returns a Proxy; any API call (createServer, Socket, connect) throws "<module>.<api> is not supported in sandbox"
+  - Deferred modules: net, tls, readline, perf_hooks, worker_threads, diagnostics_channel, async_hooks — defined in isolate-runtime/src/inject/require-setup.ts
+  - Database client fixtures (pg, mysql2, ioredis) can only be import-only in project-matrix because they all depend on net.Socket for TCP connections
+  - http.createServer IS supported (used by express, fastify, ws fixtures) but net.createServer is NOT — ws WebSocketServer works because it wraps http.createServer internally
+  - ioredis with { lazyConnect: true, enableReadyCheck: false } safely constructs without touching net module — pipeline/multi/Command APIs work without a connection
+---
+
+## 2026-03-19 - US-194
+- Enhanced mysql2 project-matrix fixture from basic import checks to comprehensive API surface validation
+- Expanded coverage: connection pool creation/config (createPool with connectionLimit, keepAlive), pool cluster (createPoolCluster with add/of/selectors), escape/format utilities (strings, numbers, null, booleans, arrays, nested arrays, identifiers, qualified identifiers, Buffer, objects/SET clauses), raw() prepared statement placeholders, MySQL type constants (27 types verified), promise wrapper (createConnection/createPool/createPoolCluster), event emitter interface
+- Real MySQL Docker integration not possible — net module is deferred-stubbed in sandbox (same as ioredis US-193, pg US-188)
+- Avoided timezone-sensitive Date formatting output (used type check instead of value comparison)
+- Files changed: packages/secure-exec/tests/projects/mysql2-pass/src/index.js
+- **Learnings for future iterations:**
+  - mysql2 pool.end() and cluster.end() accept callbacks — needed for clean fixture teardown without hanging
+  - mysql2 promise pool end() returns a Promise — use .catch() to suppress unhandled rejection
+  - mysql2 escape() with nested arrays produces SQL value lists: [[1,2],[3,4]] → "(1, 2), (3, 4)"
+  - Date formatting in mysql2.escape/format is timezone-dependent — avoid comparing date string values in project-matrix fixtures
+  - createPoolCluster.of("REPLICA*") returns a namespace selector object — exercises pattern matching without TCP
+---
+
+## 2026-03-19 - US-196
+- What was implemented: Fixed node -e stderr/errors not appearing in interactive shell and kernel.exec. Two bugs: (1) NodeRuntimeDriver didn't emit result.errorMessage as stderr — V8 isolate errors (ReferenceError, SyntaxError, throw) were captured in ExecResult.errorMessage but never forwarded to ctx.onStderr/proc.onStderr. (2) execution.ts error formatting didn't include error class name — isolated-vm preserves err.name but execution.ts only used err.message, so "lskdjf is not defined" appeared instead of "ReferenceError: lskdjf is not defined".
+- Files changed:
+  - packages/runtime/node/src/driver.ts — emit result.errorMessage as stderr via ctx.onStderr/proc.onStderr after exec returns
+  - packages/secure-exec-node/src/execution.ts — include err.name prefix in errorMessage for non-generic errors (SyntaxError, ReferenceError, etc.)
+  - packages/secure-exec/tests/kernel/cross-runtime-terminal.test.ts — added 8 new tests: 4 kernel.exec stderr tests (ReferenceError, throw Error, SyntaxError, console.error) + 4 interactive shell PTY stderr tests (ReferenceError, throw Error, SyntaxError, stderr callback chain)
+- **Learnings for future iterations:**
+  - isolated-vm preserves err.name (ReferenceError, SyntaxError) but err.message does NOT include the class name prefix — must format as `${err.name}: ${err.message}` explicitly
+  - ExecResult.errorMessage is set when V8 isolate code throws, but NodeRuntimeDriver only emitted stderr in the catch block (for driver-level errors) — result.errorMessage needed separate emission
+  - process.exit errors use a generic Error (name === "Error") so the name prefix logic correctly skips them
+  - Changing execution.ts requires `pnpm run build` (or turbo build) before tests pick up the change — vitest resolves the compiled output, not TypeScript source
+  - The WARN "could not retrieve pid for child process" appears on stderr for all node -e invocations — tests must tolerate it
+---
+
+## 2026-03-19 - US-197
+- What was implemented: Verified tree command works correctly in both kernel.exec() and interactive shell; no code fix needed (tree never hung — hypothesized stdin blocking does not occur because tree.rs never reads stdin, and the WASM polyfill only blocks on stdin when fd_read(0) is actually called). Added comprehensive test suite covering all acceptance criteria.
+- Files changed:
+  - packages/secure-exec/tests/kernel/tree-test.test.ts — 6 new tests: kernel.exec tree / returns within 5s, tree /nonexistent returns non-zero, 3-level nested directory rendering, empty directory minimal output, interactive shell tree completes with prompt return, stdin-empty-PTY non-hang verification
+  - scripts/ralph/prd.json — marked US-197 as passes: true
+- **Learnings for future iterations:**
+  - tree.rs only uses io::stdout() and fs::read_dir() — no stdin reads → PTY stdin blocking is not an issue for tree
+  - Interactive shell tests must use shell.onData = fn (property setter), not shell.onData(fn) — openShell returns a ShellHandle with getter/setter, not EventEmitter
+  - Shell prompt text is "sh-0.4$ " — use '$ ' substring match for prompt detection in tests
+  - Tree summary output uses singular/plural: "1 directory" vs "N directories", "1 file" vs "N files" — match with regex /\d+ director/ and /\d+ file/
+  - Interactive shell cleanup: send 'exit\n' and race shell.wait() with a timeout to avoid test hangs from dispose()
+  - kernel.exec('tree /') runs in under 1 second; interactive shell 'tree /' completes within 200ms after command is dispatched
 ---

@@ -276,6 +276,11 @@ export function wrapNetworkAdapter(
 			);
 			return adapter.httpRequest(url, options);
 		},
+		// Forward upgrade socket methods for bidirectional WebSocket relay
+		upgradeSocketWrite: adapter.upgradeSocketWrite?.bind(adapter),
+		upgradeSocketEnd: adapter.upgradeSocketEnd?.bind(adapter),
+		upgradeSocketDestroy: adapter.upgradeSocketDestroy?.bind(adapter),
+		setUpgradeSocketCallbacks: adapter.setUpgradeSocketCallbacks?.bind(adapter),
 	};
 }
 

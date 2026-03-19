@@ -39,7 +39,7 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 | `buffer` | 2 (Polyfill) | Polyfill via `buffer`. |
 | `url` | 2 (Polyfill) | Polyfill via `whatwg-url` and node-stdlib-browser shims. |
 | `events` | 2 (Polyfill) | Polyfill via `events`. |
-| `stream` | 2 (Polyfill) | Polyfill via `readable-stream`. |
+| `stream` | 2 (Polyfill) | Polyfill via `readable-stream`. `stream/web` subpath supported (Web Streams API: `ReadableStream`, `WritableStream`, `TransformStream`, etc.). |
 | `util` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
 | `assert` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
 | `querystring` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
@@ -53,7 +53,8 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 | `constants` | 2 (Polyfill) | `constants-browserify`; `os.constants` remains available via `os`. |
 | Fetch globals (`fetch`, `Headers`, `Request`, `Response`) | 1 (Bridge) | Bridged via network bridge implementation. |
 | `async_hooks` | 3 (Stub) | `AsyncLocalStorage` (with `run`, `enterWith`, `getStore`, `disable`, `exit`), `AsyncResource` (with `runInAsyncScope`, `emitDestroy`), `createHook` (returns enable/disable no-ops), `executionAsyncId`, `triggerAsyncId`. |
-| `diagnostics_channel` | 3 (Stub) | No-op `channel()` and `tracingChannel()` stubs; channels always report `hasSubscribers: false`; `publish`, `subscribe`, `unsubscribe` are no-ops. Provides Fastify compatibility. |
+| `console` | 1 (Bridge) | Circular-safe bounded formatting via bridge shim; `log`, `warn`, `error`, `info`, `debug`, `dir`, `time`/`timeEnd`/`timeLog`, `assert`, `clear`, `count`/`countReset`, `group`/`groupEnd`, `table`, `trace`. Drop-by-default; consumers use `onStdio` hook for streaming. |
+| `diagnostics_channel` | 3 (Stub) | No-op `channel()`, `tracingChannel()`, `Channel` constructor; channels always report `hasSubscribers: false`; `publish`, `subscribe`, `unsubscribe` are no-ops. Provides Fastify compatibility. |
 | Deferred modules (`net`, `tls`, `readline`, `perf_hooks`, `worker_threads`) | 4 (Deferred) | `require()` returns stubs; APIs throw deterministic unsupported errors when called. |
 | Unsupported modules (`dgram`, `cluster`, `wasi`, `inspector`, `repl`, `trace_events`, `domain`) | 5 (Unsupported) | `require()` fails immediately with deterministic unsupported-module errors. |
 
@@ -69,8 +70,25 @@ The [project-matrix test suite](https://github.com/rivet-dev/secure-exec/tree/ma
 | [vite](https://npmjs.com/package/vite) | Build Tool | ESM, HMR server, plugin system |
 | [astro](https://npmjs.com/package/astro) | Web Framework | Island architecture, SSR, multi-framework |
 | [hono](https://npmjs.com/package/hono) | Web Framework | ESM imports, lightweight HTTP |
+| [axios](https://npmjs.com/package/axios) | HTTP Client | HTTP client requests via fetch adapter, JSON APIs |
+| [node-fetch](https://npmjs.com/package/node-fetch) | HTTP Client | Fetch polyfill using http module, stream piping |
 | [dotenv](https://npmjs.com/package/dotenv) | Configuration | Environment variable loading, fs reads |
 | [semver](https://npmjs.com/package/semver) | Utility | Version parsing and comparison |
+| [ssh2](https://npmjs.com/package/ssh2) | Networking | SSH client/server, crypto, streams, events |
+| [ssh2-sftp-client](https://npmjs.com/package/ssh2-sftp-client) | Networking | SFTP client, file transfer APIs over SSH |
+| [pg](https://npmjs.com/package/pg) | Database | PostgreSQL client, Pool/Client classes, type parsers |
+| [mysql2](https://npmjs.com/package/mysql2) | Database | MySQL client, connection/pool classes, escape/format utilities |
+| [ioredis](https://npmjs.com/package/ioredis) | Database | Redis client, Cluster, Command, pipeline/multi transaction APIs |
+| [drizzle-orm](https://npmjs.com/package/drizzle-orm) | Database | ORM schema definition, query building, ESM module graph |
+| [ws](https://npmjs.com/package/ws) | Networking | WebSocket client/server, HTTP upgrade, events |
+| [jsonwebtoken](https://npmjs.com/package/jsonwebtoken) | Crypto | JWT signing (HS256), verification, decode |
+| [bcryptjs](https://npmjs.com/package/bcryptjs) | Crypto | Pure JS password hashing and verification |
+| [chalk](https://npmjs.com/package/chalk) | Terminal | Terminal string styling, ANSI escape codes |
+| [lodash-es](https://npmjs.com/package/lodash-es) | Utility | Large ESM module resolution at scale |
+| [pino](https://npmjs.com/package/pino) | Logging | Structured JSON logging, child loggers, serializers |
+| [uuid](https://npmjs.com/package/uuid) | Crypto | UUID generation (v4, v5), validation, version detection |
+| [yaml](https://npmjs.com/package/yaml) | Utility | YAML parsing, stringifying, document API |
+| [zod](https://npmjs.com/package/zod) | Validation | Schema definition, parsing, safe parse, transforms |
 | [rivetkit](https://npmjs.com/package/rivetkit) | SDK | Local vendor package resolution |
 | crypto (builtin) | Crypto | `crypto.randomBytes`, `randomUUID`, `getRandomValues` |
 | fs-metadata-rename | Filesystem | `stat` metadata, `rename` semantics |
@@ -85,6 +103,7 @@ The [project-matrix test suite](https://github.com/rivet-dev/secure-exec/tree/ma
 | yarn-berry-layout | Package Manager | Yarn Berry PnP/node_modules layout |
 | bun-layout | Package Manager | Bun `node_modules` layout |
 | workspace-layout | Package Manager | npm workspace `node_modules` layout |
+| sse-streaming | Networking | SSE server, chunked transfer-encoding, streaming reads |
 | net-unsupported (fail) | Error Handling | `net.createServer` correctly errors |
 
 To request a new package be added to the test suite, [open an issue](https://github.com/rivet-dev/secure-exec/issues/new?labels=package-request&title=Package+request:+%5Bpackage-name%5D).
