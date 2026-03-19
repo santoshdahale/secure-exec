@@ -56,7 +56,7 @@ All three CF deployment models share the same `nodejs_compat` API surface. WfP a
 | **`process`** | 🟢 `env` (permission-gated), `cwd`/`chdir`, `exit`, timers, stdio event emitters, `hrtime`, `platform`, `arch`, `version`, `argv`, `pid`, `ppid`, `uid`, `gid`. | 🟡 `env`, `cwd`/`chdir`, `exit`, `nextTick`, `stdin`/`stdout`/`stderr`, `platform`, `arch`, `version`. No real process IDs or OS-level user/group IDs. Requires extra `enable_nodejs_process_v2` flag for full surface. | **secure-exec**: Configurable timing mitigation (`freeze` mode); real `pid`/`uid`/`gid` metadata. **CF**: Synthetic process metadata. |
 | **`child_process`** | 🟢 `spawn`, `spawnSync`, `exec`, `execSync`, `execFile`, `execFileSync`. `fork` unsupported. | 🔴 Non-functional stub; all methods throw. | **secure-exec**: Bound to the system driver; subprocess behavior determined by driver implementation. CF has no subprocess support. |
 | **`os`** | 🟢 `platform`, `arch`, `type`, `release`, `version`, `homedir`, `tmpdir`, `hostname`, `userInfo`, `os.constants`. | 🟡 Basic platform/arch metadata. | **secure-exec**: Richer OS metadata surface. |
-| **`worker_threads`** | ⛔ Stubs that throw on API call. | 🔴 Non-functional stub. | Neither platform supports worker threads. |
+| **`worker_threads`** | 🔴 Requireable; all APIs throw deterministic unsupported errors. | 🔴 Non-functional stub. | Neither platform supports worker threads. |
 | **`cluster`** | ⛔ `require()` throws. | 🔴 Non-functional stub. | Neither platform supports clustering. |
 | **`timers`** | 🟢 `setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`, `setImmediate`, `clearImmediate`. | 🟢 Same surface; returns `Timeout` objects. | Equivalent support. |
 | **`vm`** | 🔴 Browser polyfill via `Function()`/`eval()`. No real context isolation; shares global scope. | 🔴 Non-functional stub. | Neither offers real `vm` sandboxing. secure-exec polyfill silently runs code in shared scope, not safe for isolation. |
@@ -92,9 +92,9 @@ All three CF deployment models share the same `nodejs_compat` API surface. WfP a
 | **`module`** | 🟢 `createRequire`, `Module` basics, builtin resolution. | 🟡 Limited surface. | **secure-exec**: CJS/ESM with `createRequire`. |
 | **`console`** | 🟢 Circular-safe bounded formatting; drop-by-default with `onStdio` hook. | 🟢 Supported; output routed to Workers Logs / Tail Workers. | |
 | **`async_hooks`** | 🔴 Stub: `AsyncLocalStorage` (run/enterWith/getStore/disable/exit), `AsyncResource` (runInAsyncScope/emitDestroy), `createHook` (returns enable/disable no-ops), `executionAsyncId`/`triggerAsyncId`. All methods are callable but do not track real async context. | 🔴 Non-functional stub. | |
-| **`perf_hooks`** | ⚪ TBD. | 🟡 Limited surface. | |
+| **`perf_hooks`** | 🔴 Requireable stub; APIs throw deterministic unsupported errors. | 🟡 Limited surface. | |
 | **`diagnostics_channel`** | 🔴 Stub: `channel()`, `hasSubscribers()`, `tracingChannel()`, `Channel` constructor. All channels report no subscribers; `publish` is a no-op. Sufficient for framework compatibility (e.g., Fastify). | 🟢 Supported. | |
-| **`readline`** | ⚪ TBD. | 🔴 Non-functional stub. | |
+| **`readline`** | 🔴 Requireable stub; APIs throw deterministic unsupported errors. | 🔴 Non-functional stub. | |
 | **`tty`** | 🔴 `isatty()` returns `false`; `ReadStream`/`WriteStream` throw. | 🔴 Stub-like. | Both platforms are essentially non-functional beyond `isatty()`. |
 | **`constants`** | 🟢 Supported. | 🟢 Supported. | |
 | **`punycode`** | 🟢 Supported via `node-stdlib-browser` polyfill (deprecated upstream). | 🟢 Supported (deprecated). | |

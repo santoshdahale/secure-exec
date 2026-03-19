@@ -39,7 +39,7 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 | `buffer` | 2 (Polyfill) | Polyfill via `buffer`. |
 | `url` | 2 (Polyfill) | Polyfill via `whatwg-url` and node-stdlib-browser shims. |
 | `events` | 2 (Polyfill) | Polyfill via `events`. |
-| `stream` | 2 (Polyfill) | Polyfill via `readable-stream`. |
+| `stream` | 2 (Polyfill) | Polyfill via `readable-stream`. `stream/web` subpath supported (Web Streams API: `ReadableStream`, `WritableStream`, `TransformStream`, etc.). |
 | `util` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
 | `assert` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
 | `querystring` | 2 (Polyfill) | Polyfill via node-stdlib-browser. |
@@ -53,7 +53,8 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 | `constants` | 2 (Polyfill) | `constants-browserify`; `os.constants` remains available via `os`. |
 | Fetch globals (`fetch`, `Headers`, `Request`, `Response`) | 1 (Bridge) | Bridged via network bridge implementation. |
 | `async_hooks` | 3 (Stub) | `AsyncLocalStorage` (with `run`, `enterWith`, `getStore`, `disable`, `exit`), `AsyncResource` (with `runInAsyncScope`, `emitDestroy`), `createHook` (returns enable/disable no-ops), `executionAsyncId`, `triggerAsyncId`. |
-| `diagnostics_channel` | 3 (Stub) | No-op `channel()` and `tracingChannel()` stubs; channels always report `hasSubscribers: false`; `publish`, `subscribe`, `unsubscribe` are no-ops. Provides Fastify compatibility. |
+| `console` | 1 (Bridge) | Circular-safe bounded formatting via bridge shim; `log`, `warn`, `error`, `info`, `debug`, `dir`, `time`/`timeEnd`/`timeLog`, `assert`, `clear`, `count`/`countReset`, `group`/`groupEnd`, `table`, `trace`. Drop-by-default; consumers use `onStdio` hook for streaming. |
+| `diagnostics_channel` | 3 (Stub) | No-op `channel()`, `tracingChannel()`, `Channel` constructor; channels always report `hasSubscribers: false`; `publish`, `subscribe`, `unsubscribe` are no-ops. Provides Fastify compatibility. |
 | Deferred modules (`net`, `tls`, `readline`, `perf_hooks`, `worker_threads`) | 4 (Deferred) | `require()` returns stubs; APIs throw deterministic unsupported errors when called. |
 | Unsupported modules (`dgram`, `cluster`, `wasi`, `inspector`, `repl`, `trace_events`, `domain`) | 5 (Unsupported) | `require()` fails immediately with deterministic unsupported-module errors. |
 
