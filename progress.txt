@@ -1939,3 +1939,14 @@ PRD: ralph/kernel-hardening (46 stories)
 - Files changed:
   - prd.json — marked US-148 as passes: true
 ---
+
+## 2026-03-18 - US-149
+- What was implemented: Verified timing mitigation hardening already in place
+- Date.now frozen with writable:false, configurable:false in apply-timing-mitigation-freeze.ts
+- Date constructor patched: new Date() returns frozen time, new Date(ts) passes through
+- performance.now() returns 0 via proxy object; SharedArrayBuffer neutered
+- process.hrtime/uptime funnel through getNowMs() for consistency
+- All timing tests pass; 3 pre-existing failures in index.test.ts unrelated to timing (globals hardening, maxSockets, upgrade)
+- Files changed:
+  - prd.json — marked US-149 as passes: true
+---
