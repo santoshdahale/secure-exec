@@ -2017,3 +2017,24 @@ PRD: ralph/kernel-hardening (46 stories)
 - Files changed:
   - prd.json — marked US-157 as passes: true
 ---
+
+## 2026-03-18 - US-158
+- What was implemented: Fixed 3 pre-existing test failures and verified SSRF loopback exemption
+- Changes:
+  - apply-custom-global-policy.ts: Lock down absent hardened globals (not just present ones) — fixes `_ptySetRawMode` not being hardened when PTY not attached
+  - driver.ts: Added `initialExemptPorts` option to `createDefaultNetworkAdapter()` for pre-seeding loopback SSRF exemptions
+  - index.test.ts: Rewrote maxSockets test to use adapter-bridged server; rewrote upgrade test to use `initialExemptPorts`; added `createDefaultNetworkAdapter` to static imports
+  - Rebuilt isolate-runtime and secure-exec-node packages
+- All 116 index.test.ts tests now pass (was 113/116)
+- All 44 ssrf-protection.test.ts tests pass
+- Files changed:
+  - packages/secure-exec-core/isolate-runtime/src/inject/apply-custom-global-policy.ts
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts (auto-generated)
+  - packages/secure-exec-node/src/driver.ts
+  - packages/secure-exec/tests/runtime-driver/node/index.test.ts
+  - prd.json
+- **Learnings for future iterations:**
+  - `@secure-exec/node` resolves to `dist/` — must rebuild after source changes (`pnpm run build` in packages/secure-exec-node/)
+  - `applyCustomGlobalExposurePolicy` only locks globals that exist on globalThis — absent hardened globals must be pre-defined as undefined
+  - HTTP upgrade events require raw socket handling — bridged servers can't do this; use `initialExemptPorts` for external servers
+---

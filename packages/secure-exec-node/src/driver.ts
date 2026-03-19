@@ -278,10 +278,13 @@ const MAX_REDIRECTS = 20;
  * and loopback-only HTTP server support. Binary responses are base64-encoded
  * with an `x-body-encoding` header so the bridge can decode them.
  */
-export function createDefaultNetworkAdapter(): NetworkAdapter {
+export function createDefaultNetworkAdapter(options?: {
+	/** Pre-seed loopback ports that should bypass SSRF checks (e.g. host-managed servers). */
+	initialExemptPorts?: Iterable<number>;
+}): NetworkAdapter {
 	const servers = new Map<number, HttpServer>();
 	// Track ports owned by sandbox HTTP servers for loopback SSRF exemption
-	const ownedServerPorts = new Set<number>();
+	const ownedServerPorts = new Set<number>(options?.initialExemptPorts);
 
 	return {
 		async httpServerListen(options) {
