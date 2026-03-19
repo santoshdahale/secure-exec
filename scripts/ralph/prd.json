@@ -3074,7 +3074,7 @@
 				"Tests pass (project-matrix)"
 			],
 			"priority": 178,
-			"passes": false,
+			"passes": true,
 			"notes": "axios is the most popular HTTP client. Tests http bridge from client perspective."
 		},
 		{

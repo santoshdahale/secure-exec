@@ -110,6 +110,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - Bridge fs.ts `bridgeCall()` helper wraps applySyncPromise calls with ENOENT/EACCES/EEXIST error re-creation — use it for ALL new bridge fs methods
 - runtime-node has two VFS adapters (createKernelVfsAdapter, createHostFallbackVfs) that both need new VFS methods forwarded
 - diagnostics_channel is Tier 4 (deferred) with a custom no-op stub in require-setup.ts — channels report no subscribers, publish is no-op; needed for Fastify compatibility
+- Sandbox fetch() accepts Request objects (not just strings/URLs) — axios fetch adapter passes Request to fetch(); extract .url/.method/.headers
+- Sandbox process has Symbol.toStringTag = "process" — required by axios/libraries that check Object.prototype.toString.call(process)
 - Fastify fixture uses `app.routing(req, res)` for programmatic dispatch — avoids light-my-request's deep ServerResponse dependency; `app.server.emit("request")` won't work because sandbox Server lacks full EventEmitter
 - Sandbox Server class needs `setTimeout`, `keepAliveTimeout`, `requestTimeout` properties for framework compatibility — added as no-ops
 - Moving a module from Unsupported (Tier 5) to Deferred (Tier 4) requires changes in: module-resolver.ts, require-setup.ts, node-stdlib.md contract, and adding BUILTIN_NAMED_EXPORTS entry
@@ -2232,4 +2234,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - pgTable auto-adds "enableRLS" to column names — include it in sorted column list expectations
   - drizzle-orm has zero dependencies — installs fast, good candidate for lightweight ORM testing
   - e2e-project-matrix kernel tests fail for ALL fixtures (pre-existing), not a drizzle-specific issue
+---
+
+## 2026-03-18 - US-178
+- What was implemented: Added axios project-matrix fixture with http adapter + fetch bridge support
+- Files changed:
+  - packages/secure-exec/tests/projects/axios-pass/ — new fixture (package.json, fixture.json, src/index.js)
+  - packages/secure-exec-core/src/bridge/process.ts — added Symbol.toStringTag = "process" so Object.prototype.toString.call(process) returns "[object process]"
+  - packages/secure-exec-core/src/bridge/network.ts — fixed fetch() to accept Request objects (extract url/method/headers from Request input)
+  - docs/nodejs-compatibility.mdx — added axios to Tested Packages table
+- **Learnings for future iterations:**
+  - axios adapter selection: default order is ['xhr', 'http', 'fetch']; sandbox XHR is polyfill-based and unreliable, http adapter uses follow-redirects which has incompatible emit patterns, fetch adapter works best
+  - axios http adapter checks `utils.kindOf(process) === 'process'` via Object.prototype.toString.call — sandbox process object needed Symbol.toStringTag = "process"
+  - axios fetch adapter passes Request objects to fetch(), not just URL strings — sandbox fetch() must handle Request input by extracting .url, .method, .headers
+  - hasBrowserEnv check in axios: `typeof window !== 'undefined' && typeof document !== 'undefined'` — sandbox does NOT define window/document (V8 isolate), so this is false
+  - fixture uses `adapter: "fetch"` to explicitly select fetch adapter — this is valid sandbox-blind Node.js code (fetch adapter works in Node.js 18+)
 ---
