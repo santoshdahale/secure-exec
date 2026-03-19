@@ -2421,3 +2421,19 @@ PRD: ralph/kernel-hardening (46 stories)
   - UpgradeSocket.destroy/close must emit 'close' with false argument (hadError=false) for ws compatibility
   - applySync from within applySync (host→sandbox→host reentrance) works in isolated-vm — the host Reference callback runs synchronously
 ---
+
+## 2026-03-19 - US-192
+- Created shared Docker container test utility at packages/secure-exec/tests/utils/docker.ts
+- startContainer(image, opts) accepts port mappings, env vars, health check command, timeout
+- Returns { containerId, host, port, ports, stop() } — stop() is idempotent
+- skipUnlessDocker() skip helper follows project convention (returns string | false)
+- Auto-pulls images not present locally via execFileSync
+- Health check loop with configurable timeout (default 30s) and interval (default 500ms)
+- Self-test at packages/secure-exec/tests/utils/docker.test.ts (4 tests: basic start/exec/stop, port mapping, health check, env vars)
+- Files changed: packages/secure-exec/tests/utils/docker.ts, packages/secure-exec/tests/utils/docker.test.ts
+- **Learnings for future iterations:**
+  - Use execFileSync (not execSync with args.join(" ")) for docker CLI calls — shell interpretation breaks commands containing spaces, semicolons, pipes
+  - Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) is a clean synchronous sleep without spawning a shell process
+  - Docker port output format is "0.0.0.0:12345" — match /:(\d+)$/m to extract the host port
+  - afterAll cleanup in container tests ensures containers are removed even on test failure
+---

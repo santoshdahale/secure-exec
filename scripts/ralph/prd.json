@@ -3314,7 +3314,7 @@
         "Tests pass"
       ],
       "priority": 192,
-      "passes": false,
+      "passes": true,
       "notes": "Shared by ioredis, mysql2, and any future DB fixture. Uses child_process.execSync to call docker CLI. Must clean up containers even on test failure (use afterAll/finally)."
     },
     {
