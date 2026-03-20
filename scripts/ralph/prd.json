@@ -448,8 +448,8 @@
         "Tests pass"
       ],
       "priority": 25,
-      "passes": false,
-      "notes": "Named prepared statements use different wire protocol messages (Parse/Bind/Execute vs SimpleQuery). The current fixture only uses unnamed parameterized queries. Prepared statement caching and reuse is a production-critical path."
+      "passes": true,
+      "notes": "Completed. Fixture pg-prepared tests named prepared statements with insert (reused 3x), select (reused 2x), update, and delete. Exercises Parse/Bind/Execute wire protocol and prepared statement cache. Host and sandbox produce identical output."
     },
     {
       "id": "US-026",
