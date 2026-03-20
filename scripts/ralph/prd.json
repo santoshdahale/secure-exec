@@ -290,8 +290,8 @@
         "Tests pass"
       ],
       "priority": 16,
-      "passes": false,
-      "notes": "Key-based auth exercises completely different crypto paths than password auth (key parsing, signature generation). If the sandbox's crypto bridge has gaps in sign()/createSign() for RSA/Ed25519, the password-only test would not catch it."
+      "passes": true,
+      "notes": "Completed. Added test RSA keypair to fixture and Dockerfile. sshd.Dockerfile updated with PubkeyAuthentication and authorized_keys. Fixture connects with privateKey, runs conn.exec(), verifies parity."
     },
     {
       "id": "US-017",
@@ -359,6 +359,147 @@
       "priority": 20,
       "passes": false,
       "notes": "The current SFTP fixture only transfers 18 bytes. Larger transfers stress the sandbox's TCP buffer management, stream backpressure handling, and memory limits. Also tests createReadStream (streaming) which exercises different buffer management than readFile (buffered)."
+    },
+    {
+      "id": "US-021",
+      "title": "Expand pg-connect fixture with UPDATE, DELETE, and transactions",
+      "description": "As a developer, I need the Postgres fixture to test all CRUD operations and transactions so we validate the sandbox handles the full pg wire protocol.",
+      "acceptanceCriteria": [
+        "Add UPDATE statement to pg-connect fixture (update the inserted row, verify the change with SELECT)",
+        "Add DELETE statement (delete the row, verify with SELECT returning 0 rows)",
+        "Add a transaction block: BEGIN, INSERT, ROLLBACK, verify the row was NOT inserted",
+        "Add a transaction block: BEGIN, INSERT, COMMIT, verify the row WAS inserted",
+        "fixture.json expectation remains 'pass'",
+        "Host and sandbox produce identical normalized output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": "The current fixture only tests CREATE TABLE, INSERT, SELECT, DROP TABLE — missing UPDATE, DELETE, and all transaction semantics. If the sandbox breaks transaction state tracking, nothing catches it."
+    },
+    {
+      "id": "US-022",
+      "title": "Add pg-pool e2e-docker fixture for connection pooling",
+      "description": "As a developer, I need a Postgres fixture that tests pg.Pool so we validate pool acquire/release and concurrent queries work through the sandbox.",
+      "acceptanceCriteria": [
+        "New fixture pg-pool in tests/e2e-docker/ that uses pg.Pool instead of pg.Client",
+        "Fixture acquires a client from the pool, runs a query, releases it back",
+        "Fixture runs multiple concurrent queries via pool.query() shorthand",
+        "Fixture calls pool.end() for cleanup",
+        "fixture.json expectation is 'pass'",
+        "Host and sandbox produce identical normalized output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": "pg.Pool is how everyone uses pg in production. The current fixture only uses pg.Client. Pool acquire/release, idle timeout, and concurrent query dispatch are completely untested."
+    },
+    {
+      "id": "US-023",
+      "title": "Add pg-types e2e-docker fixture for data type coverage",
+      "description": "As a developer, I need a Postgres fixture that tests JSON, timestamps, bytea, arrays, and other data types so we validate the sandbox's type parser support.",
+      "acceptanceCriteria": [
+        "New fixture pg-types in tests/e2e-docker/ that creates a table with columns: JSON, JSONB, TIMESTAMPTZ, BOOLEAN, BYTEA, INTEGER[], TEXT[], UUID, NUMERIC",
+        "Fixture inserts a row with values for each type, reads it back, verifies round-trip fidelity",
+        "Fixture verifies that pg type parsers return the correct JavaScript types (object for JSON, Date for timestamp, Buffer for bytea, Array for arrays)",
+        "fixture.json expectation is 'pass'",
+        "Host and sandbox produce identical normalized output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": "Only TEXT and SERIAL are tested. Type parsing in node-pg relies on Buffer, crypto, and type parser functions that the sandbox may not fully support. JSON/JSONB round-trip is especially important for real-world apps."
+    },
+    {
+      "id": "US-024",
+      "title": "Add pg-errors e2e-docker fixture for error path coverage",
+      "description": "As a developer, I need a Postgres fixture that tests error handling so we validate the sandbox propagates Postgres errors correctly.",
+      "acceptanceCriteria": [
+        "New fixture pg-errors in tests/e2e-docker/ that tests multiple error scenarios",
+        "Test 1: syntax error (bad SQL) — verify error message and code match host",
+        "Test 2: query nonexistent table — verify ENOENT-style error matches host",
+        "Test 3: unique constraint violation (INSERT duplicate) — verify error matches host",
+        "Test 4: connection to wrong port — verify connection error matches host",
+        "All errors are caught and their properties (message, code, detail) are printed as JSON for parity comparison",
+        "fixture.json expectation is 'pass'",
+        "Host and sandbox produce identical normalized output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": "Zero error paths are tested for Postgres. If the sandbox swallows, reshapes, or corrupts pg error objects, nothing detects it. Error propagation is a common sandbox failure mode."
+    },
+    {
+      "id": "US-025",
+      "title": "Add pg-prepared e2e-docker fixture for prepared statements",
+      "description": "As a developer, I need a Postgres fixture that tests named prepared statements so we validate the sandbox handles the Parse/Bind/Execute wire protocol correctly.",
+      "acceptanceCriteria": [
+        "New fixture pg-prepared in tests/e2e-docker/ that uses named prepared statements",
+        "Fixture uses client.query({ name: 'insert-row', text: 'INSERT ...', values: [...] }) syntax",
+        "Fixture reuses the same named statement multiple times (exercises the prepared statement cache)",
+        "Fixture verifies results match host behavior",
+        "fixture.json expectation is 'pass'",
+        "Host and sandbox produce identical normalized output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": "Named prepared statements use different wire protocol messages (Parse/Bind/Execute vs SimpleQuery). The current fixture only uses unnamed parameterized queries. Prepared statement caching and reuse is a production-critical path."
+    },
+    {
+      "id": "US-026",
+      "title": "Fix pg auth method discrepancy between local and CI",
+      "description": "As a developer, I need local and CI Postgres containers to use the same authentication method so we don't silently test different code paths.",
+      "acceptanceCriteria": [
+        "Remove POSTGRES_HOST_AUTH_METHOD: trust from local Docker setup in e2e-docker.test.ts",
+        "Or add the same trust setting to CI — both environments must match",
+        "If removing trust: verify SCRAM-SHA-256 auth works through the sandbox locally",
+        "If keeping trust: document why and add a separate fixture that tests SCRAM auth explicitly",
+        "Tests pass both locally and in CI",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": "Local uses POSTGRES_HOST_AUTH_METHOD: trust (password bypassed), CI defaults to scram-sha-256. This means the SCRAM crypto path is only tested in CI and never locally. If a developer breaks crypto support needed for SCRAM, they won't catch it locally."
+    },
+    {
+      "id": "US-027",
+      "title": "Add TLS database connection e2e-docker fixtures",
+      "description": "As a developer, I need e2e-docker fixtures that test TLS-encrypted database connections so we validate the sandbox's HTTPS/TLS bridge handles SSL database connections correctly.",
+      "acceptanceCriteria": [
+        "New fixture pg-ssl in tests/e2e-docker/ that connects to Postgres with ssl: { rejectUnauthorized: false }",
+        "Configure the Postgres container with SSL enabled (self-signed cert)",
+        "Fixture connects, runs a query, verifies the connection was encrypted (check pg_stat_ssl or similar)",
+        "fixture.json expectation is 'pass'",
+        "Host and sandbox produce identical normalized output",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": "No database connection in the test suite uses TLS/SSL. In production, pg connections are almost always SSL-encrypted. The pg library's SSL support goes through a different code path (tls.connect wrapper) than plain TCP. Since the tls module is deferred (Tier 4), this may require implementing enough of tls for pg's SSL to work, or documenting the limitation."
+    },
+    {
+      "id": "US-028",
+      "title": "Add HTTPS error handling e2e fixture for TLS edge cases",
+      "description": "As a developer, I need tests that verify the sandbox correctly handles TLS error cases like expired certs, hostname mismatches, and self-signed certs with rejectUnauthorized:true.",
+      "acceptanceCriteria": [
+        "New test cases in tests/runtime-driver/node/ that test HTTPS error scenarios through the sandbox",
+        "Test 1: fetch() to HTTPS server with expired cert — verify error matches host",
+        "Test 2: fetch() to HTTPS server with hostname mismatch — verify error matches host",
+        "Test 3: fetch() with rejectUnauthorized:true to self-signed cert — verify rejection matches host",
+        "All errors caught and compared for parity with host Node.js behavior",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": "The existing https-streams.test.ts tests the happy path (self-signed with rejectUnauthorized:false and valid cert chain). Error cases for TLS validation failures are untested. If the sandbox silently accepts bad certs, this is a security issue."
     }
   ]
 }
