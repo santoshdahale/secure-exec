@@ -159,6 +159,14 @@ export class S3FileSystem implements VirtualFileSystem {
 	}
 
 	async createDir(path: string): Promise<void> {
+		// Verify parent exists
+		const parent = path.replace(/\/[^/]+\/?$/, "") || "/";
+		if (parent !== "/" && parent !== path) {
+			if (!(await this.exists(parent)))
+				throw new Error(
+					`ENOENT: no such file or directory, mkdir '${path}'`,
+				);
+		}
 		await this.client.send(
 			new PutObjectCommand({
 				Bucket: this.bucket,
@@ -193,7 +201,9 @@ export class S3FileSystem implements VirtualFileSystem {
 				}),
 			);
 			return true;
-		} catch {}
+		} catch (err: unknown) {
+			if (!isNotFound(err)) throw err;
+		}
 
 		// Check as directory (any objects under prefix)
 		const res = await this.client.send(
@@ -242,7 +252,9 @@ export class S3FileSystem implements VirtualFileSystem {
 				ctimeMs: mtime,
 				birthtimeMs: mtime,
 			};
-		} catch {}
+		} catch (err: unknown) {
+			if (!isNotFound(err)) throw err;
+		}
 
 		// Try as directory
 		const res = await this.client.send(
@@ -294,6 +306,9 @@ export class S3FileSystem implements VirtualFileSystem {
 	}
 
 	async removeDir(path: string): Promise<void> {
+		if (path === "/" || path === "")
+			throw new Error("EPERM: operation not permitted, rmdir '/'");
+
 		const prefix = this.dirPrefix(path);
 		const res = await this.client.send(
 			new ListObjectsV2Command({
@@ -303,6 +318,14 @@ export class S3FileSystem implements VirtualFileSystem {
 			}),
 		);
 		const contents = res.Contents ?? [];
+
+		// No objects under prefix = directory doesn't exist
+		if (contents.length === 0)
+			throw new Error(
+				`ENOENT: no such file or directory, rmdir '${path}'`,
+			);
+
+		// More than just the marker = not empty
 		if (
 			contents.length > 1 ||
 			(contents.length === 1 && contents[0].Key !== prefix)
@@ -319,16 +342,92 @@ export class S3FileSystem implements VirtualFileSystem {
 	async rename(oldPath: string, newPath: string): Promise<void> {
 		const oldKey = this.toKey(oldPath);
 		const newKey = this.toKey(newPath);
-		await this.client.send(
-			new CopyObjectCommand({
+
+		// Check if source is a directory (has children under prefix)
+		const oldPrefix = oldKey.endsWith("/") ? oldKey : oldKey + "/";
+		const listing = await this.client.send(
+			new ListObjectsV2Command({
 				Bucket: this.bucket,
-				CopySource: `${this.bucket}/${oldKey}`,
-				Key: newKey,
+				Prefix: oldPrefix,
+				MaxKeys: 1,
 			}),
 		);
-		await this.client.send(
-			new DeleteObjectCommand({ Bucket: this.bucket, Key: oldKey }),
-		);
+		const isDir = (listing.Contents?.length ?? 0) > 0;
+
+		if (isDir) {
+			// Move all objects under the old prefix to the new prefix
+			const newPrefix = newKey.endsWith("/") ? newKey : newKey + "/";
+			let token: string | undefined;
+			do {
+				const res = await this.client.send(
+					new ListObjectsV2Command({
+						Bucket: this.bucket,
+						Prefix: oldPrefix,
+						ContinuationToken: token,
+					}),
+				);
+				for (const obj of res.Contents ?? []) {
+					const suffix = obj.Key!.slice(oldPrefix.length);
+					await this.client.send(
+						new CopyObjectCommand({
+							Bucket: this.bucket,
+							CopySource: encodeURIComponent(
+								`${this.bucket}/${obj.Key!}`,
+							),
+							Key: newPrefix + suffix,
+						}),
+					);
+					await this.client.send(
+						new DeleteObjectCommand({
+							Bucket: this.bucket,
+							Key: obj.Key!,
+						}),
+					);
+				}
+				token = res.NextContinuationToken;
+			} while (token);
+			// Move the directory marker itself if it exists
+			try {
+				await this.client.send(
+					new HeadObjectCommand({
+						Bucket: this.bucket,
+						Key: oldPrefix,
+					}),
+				);
+				await this.client.send(
+					new CopyObjectCommand({
+						Bucket: this.bucket,
+						CopySource: encodeURIComponent(
+							`${this.bucket}/${oldPrefix}`,
+						),
+						Key: newPrefix,
+					}),
+				);
+				await this.client.send(
+					new DeleteObjectCommand({
+						Bucket: this.bucket,
+						Key: oldPrefix,
+					}),
+				);
+			} catch {}
+		} else {
+			// Single file rename
+			await this.client.send(
+				new CopyObjectCommand({
+					Bucket: this.bucket,
+					CopySource: encodeURIComponent(
+						`${this.bucket}/${oldKey}`,
+					),
+					Key: newKey,
+				}),
+			);
+			await this.client.send(
+				new DeleteObjectCommand({
+					Bucket: this.bucket,
+					Key: oldKey,
+				}),
+			);
+		}
 	}
 
 	// S3 does not support symlinks or hard links

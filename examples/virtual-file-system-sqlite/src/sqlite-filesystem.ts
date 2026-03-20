@@ -57,7 +57,8 @@ export class SQLiteFileSystem implements VirtualFileSystem {
 	}
 
 	async readFile(path: string): Promise<Uint8Array> {
-		const row = this.#getEntry(path);
+		const resolved = this.#resolveSymlink(path);
+		const row = this.#getEntry(resolved);
 		if (!row)
 			throw new Error(
 				`ENOENT: no such file or directory, open '${path}'`,
@@ -111,27 +112,29 @@ export class SQLiteFileSystem implements VirtualFileSystem {
 		path: string,
 		content: string | Uint8Array,
 	): Promise<void> {
+		// Resolve symlinks so writing to a symlink updates the target
+		const resolved = this.#resolveSymlink(path);
 		const data =
 			typeof content === "string"
 				? new TextEncoder().encode(content)
 				: content;
 		const now = Date.now();
 
-		await this.mkdir(dirname(path));
+		await this.mkdir(dirname(resolved));
 
-		if (this.#exists(path)) {
+		if (this.#exists(resolved)) {
 			this.db.run(
 				`UPDATE entries SET content = ?, mode = 33188, is_dir = 0,
 				is_symlink = 0, link_target = NULL, mtime_ms = ?, ctime_ms = ?
 				WHERE path = ?`,
-				[data, now, now, path],
+				[data, now, now, resolved],
 			);
 		} else {
 			this.db.run(
 				`INSERT INTO entries
 				(path, content, mode, is_dir, atime_ms, mtime_ms, ctime_ms, birthtime_ms)
 				VALUES (?, ?, 33188, 0, ?, ?, ?, ?)`,
-				[path, data, now, now, now, now],
+				[resolved, data, now, now, now, now],
 			);
 		}
 	}
@@ -168,7 +171,14 @@ export class SQLiteFileSystem implements VirtualFileSystem {
 	}
 
 	async exists(path: string): Promise<boolean> {
-		return this.#exists(path);
+		if (!this.#exists(path)) return false;
+		// If it's a symlink, check the target exists
+		try {
+			this.#resolveSymlink(path);
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	async stat(path: string) {
@@ -231,6 +241,9 @@ export class SQLiteFileSystem implements VirtualFileSystem {
 	}
 
 	async removeDir(path: string): Promise<void> {
+		if (path === "/")
+			throw new Error("EPERM: operation not permitted, rmdir '/'");
+
 		const row = this.#getEntry(path);
 		if (!row)
 			throw new Error(
@@ -239,9 +252,8 @@ export class SQLiteFileSystem implements VirtualFileSystem {
 		if (!row.is_dir)
 			throw new Error(`ENOTDIR: not a directory, rmdir '${path}'`);
 
-		const prefix = path === "/" ? "/" : path + "/";
-		const children = this.#queryChildren(prefix);
-		if (children.length > 0)
+		const prefix = path + "/";
+		if (this.#hasChildren(prefix))
 			throw new Error(
 				`ENOTEMPTY: directory not empty, rmdir '${path}'`,
 			);
@@ -258,6 +270,8 @@ export class SQLiteFileSystem implements VirtualFileSystem {
 
 		await this.mkdir(dirname(newPath));
 		const now = Date.now();
+
+		// Move the entry itself
 		this.db.run(
 			`INSERT OR REPLACE INTO entries
 			(path, content, mode, is_dir, is_symlink, link_target,
@@ -277,6 +291,22 @@ export class SQLiteFileSystem implements VirtualFileSystem {
 			],
 		);
 		this.db.run(`DELETE FROM entries WHERE path = ?`, [oldPath]);
+
+		// If it's a directory, move all children
+		if (row.is_dir) {
+			const oldPrefix = oldPath + "/";
+			const newPrefix = newPath + "/";
+			const children = this.#allDescendants(oldPrefix);
+			for (const child of children) {
+				const childPath = child.path as string;
+				const newChildPath =
+					newPrefix + childPath.slice(oldPrefix.length);
+				this.db.run(
+					`UPDATE entries SET path = ? WHERE path = ?`,
+					[newChildPath, childPath],
+				);
+			}
+		}
 	}
 
 	async symlink(target: string, linkPath: string): Promise<void> {
@@ -405,18 +435,50 @@ export class SQLiteFileSystem implements VirtualFileSystem {
 	#queryChildren(
 		prefix: string,
 	): Array<Record<string, unknown>> {
-		const exclude = prefix + "%/%";
+		// Use glob (LIKE with ESCAPE) to avoid wildcard injection from % or _ in paths
+		const escaped = escapeLike(prefix);
 		const results: Array<Record<string, unknown>> = [];
 		const stmt = this.db.prepare(
 			`SELECT path, is_dir FROM entries
-			WHERE path LIKE ? AND path != ? AND path NOT LIKE ?`,
+			WHERE path LIKE ? ESCAPE '\\' AND path != ?
+			AND path NOT LIKE ? ESCAPE '\\'`,
 		);
-		stmt.bind([prefix + "%", prefix.slice(0, -1) || "/", exclude]);
+		stmt.bind([
+			escaped + "%",
+			prefix.slice(0, -1) || "/",
+			escaped + "%/%",
+		]);
 		while (stmt.step()) {
 			results.push(stmt.getAsObject());
 		}
 		stmt.free();
 		return results;
+	}
+
+	#allDescendants(prefix: string): Array<Record<string, unknown>> {
+		const escaped = escapeLike(prefix);
+		const results: Array<Record<string, unknown>> = [];
+		const stmt = this.db.prepare(
+			`SELECT path FROM entries WHERE path LIKE ? ESCAPE '\\'`,
+		);
+		stmt.bind([escaped + "%"]);
+		while (stmt.step()) {
+			results.push(stmt.getAsObject());
+		}
+		stmt.free();
+		return results;
+	}
+
+	#hasChildren(prefix: string): boolean {
+		const escaped = escapeLike(prefix);
+		const stmt = this.db.prepare(
+			`SELECT 1 FROM entries
+			WHERE path LIKE ? ESCAPE '\\' AND path != ? LIMIT 1`,
+		);
+		stmt.bind([escaped + "%", prefix.slice(0, -1) || "/"]);
+		const found = stmt.step();
+		stmt.free();
+		return found;
 	}
 
 	#resolveSymlink(path: string, maxDepth = 16): string {
@@ -439,4 +501,9 @@ function dirname(path: string): string {
 	const parts = path.split("/").filter(Boolean);
 	if (parts.length <= 1) return "/";
 	return "/" + parts.slice(0, -1).join("/");
+}
+
+/** Escape SQL LIKE wildcards (% and _) so paths are matched literally. */
+function escapeLike(s: string): string {
+	return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }

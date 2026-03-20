@@ -48,4 +48,4 @@ CREATE TABLE entries (
 - **Snapshotting**: Call `.export()` to serialize the entire filesystem state, restore later with `SQLiteFileSystem.create(bytes)`
 - **Auditing**: Query the database to inspect what files sandboxed code created or modified
 - **Embedded applications**: No external service dependencies — runs entirely in-process
-- **Testing**: Fast, disposable in-memory filesystems with full POSIX semantics
+- **Testing**: Fast, disposable in-memory filesystems
