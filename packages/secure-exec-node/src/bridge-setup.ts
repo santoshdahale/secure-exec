@@ -423,6 +423,95 @@ export async function setupRequire(
 		cryptoDecipherivRef,
 	);
 
+	// Stateful cipher/decipher for streaming crypto (ssh2 AES-GCM, etc.)
+	const cipherSessions = new Map<
+		number,
+		{ instance: any; isGcm: boolean; mode: "cipher" | "decipher" }
+	>();
+	let nextCipherSessionId = 1;
+
+	const cryptoCipherivCreateRef = new ivm.Reference(
+		(
+			mode: string,
+			algorithm: string,
+			keyBase64: string,
+			ivBase64: string,
+		): number => {
+			const key = Buffer.from(keyBase64, "base64");
+			const iv = Buffer.from(ivBase64, "base64");
+			const sessionId = nextCipherSessionId++;
+			const isCipher = mode === "cipher";
+			const instance = isCipher
+				? createCipheriv(algorithm, key, iv)
+				: createDecipheriv(algorithm, key, iv);
+			cipherSessions.set(sessionId, {
+				instance,
+				isGcm: algorithm.includes("-gcm"),
+				mode: isCipher ? "cipher" : "decipher",
+			});
+			return sessionId;
+		},
+	);
+
+	const cryptoCipherivUpdateRef = new ivm.Reference(
+		(sessionId: number, dataBase64: string, optionsJson?: string): string => {
+			const session = cipherSessions.get(sessionId);
+			if (!session) throw new Error("Invalid cipher session");
+			if (optionsJson) {
+				const opts = JSON.parse(optionsJson);
+				if (opts.setAAD) {
+					(session.instance as any).setAAD(
+						Buffer.from(opts.setAAD, "base64"),
+					);
+				}
+				if (opts.setAuthTag) {
+					(session.instance as any).setAuthTag(
+						Buffer.from(opts.setAuthTag, "base64"),
+					);
+				}
+				if (opts.setAutoPadding !== undefined) {
+					(session.instance as any).setAutoPadding(opts.setAutoPadding);
+				}
+				// Options-only call (no data to process)
+				if (!dataBase64) return "";
+			}
+			const data = Buffer.from(dataBase64, "base64");
+			const result = session.instance.update(data);
+			return result.toString("base64");
+		},
+	);
+
+	const cryptoCipherivFinalRef = new ivm.Reference(
+		(sessionId: number): string => {
+			const session = cipherSessions.get(sessionId);
+			if (!session) throw new Error("Invalid cipher session");
+			const result = session.instance.final();
+			const response: Record<string, string> = {
+				data: result.toString("base64"),
+			};
+			if (session.isGcm && session.mode === "cipher") {
+				response.authTag = (session.instance as any)
+					.getAuthTag()
+					.toString("base64");
+			}
+			cipherSessions.delete(sessionId);
+			return JSON.stringify(response);
+		},
+	);
+
+	await jail.set(
+		HOST_BRIDGE_GLOBAL_KEYS.cryptoCipherivCreate,
+		cryptoCipherivCreateRef,
+	);
+	await jail.set(
+		HOST_BRIDGE_GLOBAL_KEYS.cryptoCipherivUpdate,
+		cryptoCipherivUpdateRef,
+	);
+	await jail.set(
+		HOST_BRIDGE_GLOBAL_KEYS.cryptoCipherivFinal,
+		cryptoCipherivFinalRef,
+	);
+
 	// Set up host crypto references for sign/verify and key generation.
 	// sign: (algorithm, dataBase64, keyPem) → signatureBase64
 	const cryptoSignRef = new ivm.Reference(

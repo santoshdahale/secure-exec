@@ -38,8 +38,8 @@
         "Tests pass"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": "Currently expects failure with 'net.connect is not supported in sandbox'. mysql2 uses net.connect() internally. Depends on net bridge work from US-001."
+      "passes": true,
+      "notes": "Fixed: iconv-lite lazy encoding load inside applySync contexts. Added sync resolution/loading bridges, JS-side resolution cache, name-based module caching, mysql_native_password auth, and eager iconv-lite init."
     },
     {
       "id": "US-003",
@@ -57,8 +57,8 @@
         "Tests pass"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": "Currently expects failure with 'net.createConnection is not supported in sandbox'. ioredis uses net.createConnection() internally. Depends on net bridge work from US-001."
+      "passes": true,
+      "notes": "Fixed: net bridge already supports net.createConnection from US-001 work. ioredis connects through sandbox net bridge to real Redis container. Updated fixture.json from fail to pass."
     },
     {
       "id": "US-004",
@@ -76,8 +76,8 @@
         "Tests pass"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": "Currently expects failure with 'net.Socket is not supported in sandbox'. ssh2 uses net.Socket for TCP and does complex binary framing, crypto negotiation, and bidirectional streaming. Hardest fixture after net bridge basics land."
+      "passes": true,
+      "notes": "Fixed: Buffer prototype patching (latin1Slice, base64Slice, etc.), NetSocket._readableState.ended for ssh2 isWritable(), and stateful cipher/decipher bridge for AES-GCM streaming. ssh2 connects through sandbox net bridge to real SSH container."
     },
     {
       "id": "US-005",
@@ -95,8 +95,8 @@
         "Tests pass"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": "Currently expects failure with 'net.Socket is not supported in sandbox'. Depends on ssh2 working (US-004). Tests SFTP subsystem negotiation and file stream correctness."
+      "passes": true,
+      "notes": "Fixed: same fixes as US-004 (Buffer prototype, _readableState.ended, stateful cipher) also fixed SFTP. ssh2-sftp-transfer connects through sandbox net bridge, writes/reads/stats/unlinks files via SFTP."
     },
     {
       "id": "US-006",
@@ -226,6 +226,55 @@
       "priority": 12,
       "passes": false,
       "notes": "The spec currently claims OpenCode 'exercises a different sandbox path: the binary runs on the host via child_process.spawn' as if this is unique to OpenCode. In reality, Claude Code also requires this approach. Pi is the only tool that can genuinely run as JS inside the VM."
+    },
+    {
+      "id": "US-013",
+      "title": "Create S3 VFS driver example with MinIO test setup",
+      "description": "As a developer, I need an example showing how to implement a VirtualFileSystem backed by S3 so I can store sandbox files in object storage.",
+      "acceptanceCriteria": [
+        "S3FileSystem class implements full VirtualFileSystem interface",
+        "Works with any S3-compatible store (AWS, MinIO, R2)",
+        "Docker Compose file for local MinIO test server",
+        "Example creates NodeRuntime with S3 filesystem, writes/reads files from sandbox, verifies via S3 API",
+        "README with instructions to start MinIO and run the test",
+        "Typecheck passes",
+        "Tests pass end-to-end against MinIO"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "Completed. Example at examples/vfs-s3/. Uses @aws-sdk/client-s3. Tested e2e against MinIO Docker container. Symlinks/hard links throw ENOSYS; chmod/chown/utimes are no-ops."
+    },
+    {
+      "id": "US-014",
+      "title": "Create SQLite VFS driver example with sql.js",
+      "description": "As a developer, I need an example showing how to implement a VirtualFileSystem backed by SQLite so I can store sandbox files in a database.",
+      "acceptanceCriteria": [
+        "SQLiteFileSystem class implements full VirtualFileSystem interface",
+        "Uses sql.js (WASM) — no native compilation required",
+        "Supports symlinks, hard links, chmod, utimes, truncate",
+        "Supports snapshot/restore via export()/create(bytes)",
+        "Example creates NodeRuntime with SQLite filesystem, writes/reads files from sandbox, verifies via VFS API",
+        "README with instructions to run the test",
+        "Typecheck passes",
+        "Tests pass end-to-end"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "Completed. Example at examples/vfs-sqlite/. Uses sql.js (WASM SQLite). All entries stored in single 'entries' table. Tested e2e — no external services needed."
+    },
+    {
+      "id": "US-015",
+      "title": "Link VFS examples in docs and describe use cases",
+      "description": "As a developer, I need the VFS examples linked in the custom virtual filesystem docs page with descriptions of use cases so I can discover them.",
+      "acceptanceCriteria": [
+        "docs/features/virtual-filesystem.mdx links to both S3 and SQLite examples",
+        "Use case descriptions for each example",
+        "Additional use case ideas listed (Git-backed, encrypted, overlay, remote)",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "Completed. Added 'More examples' section with CardGroup linking to S3 and SQLite examples on GitHub, plus a list of other VFS use cases."
     }
   ]
 }

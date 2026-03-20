@@ -185,6 +185,22 @@
             ) {
               BufferCtor.constants = result.constants;
             }
+
+            // Patch internal V8 Buffer slice/write methods (ssh2, asn1, etc.)
+            var bProto = BufferCtor.prototype;
+            if (bProto) {
+              var encs = ['utf8', 'ascii', 'latin1', 'binary', 'hex', 'base64', 'ucs2', 'utf16le'];
+              for (var ei = 0; ei < encs.length; ei++) {
+                (function(e) {
+                  if (typeof bProto[e + 'Slice'] !== 'function') {
+                    bProto[e + 'Slice'] = function(start, end) { return this.toString(e, start, end); };
+                  }
+                  if (typeof bProto[e + 'Write'] !== 'function') {
+                    bProto[e + 'Write'] = function(str, offset, length) { return this.write(str, offset, length, e); };
+                  }
+                })(encs[ei]);
+              }
+            }
           }
 
           return result;
@@ -571,100 +587,163 @@
             };
           }
 
-          // Overlay host-backed createCipheriv/createDecipheriv
-          if (typeof _cryptoCipheriv !== 'undefined') {
+          // Overlay host-backed createCipheriv/createDecipheriv.
+          // Uses stateful bridge (create/update/final) so update() returns data
+          // immediately — required by ssh2 AES-GCM streaming encryption.
+          // Falls back to one-shot bridge when stateful bridge is unavailable.
+          var _useStatefulCipher = typeof _cryptoCipherivCreate !== 'undefined';
+
+          if (typeof _cryptoCipheriv !== 'undefined' || _useStatefulCipher) {
             function SandboxCipher(algorithm, key, iv) {
               this._algorithm = algorithm;
               this._key = typeof key === 'string' ? Buffer.from(key, 'utf8') : Buffer.from(key);
               this._iv = typeof iv === 'string' ? Buffer.from(iv, 'utf8') : Buffer.from(iv);
-              this._chunks = [];
               this._authTag = null;
               this._finalized = false;
+              if (_useStatefulCipher) {
+                this._sessionId = _cryptoCipherivCreate.applySync(undefined, [
+                  'cipher', algorithm, this._key.toString('base64'), this._iv.toString('base64'),
+                ]);
+              } else {
+                this._sessionId = -1;
+                this._chunks = [];
+              }
             }
             SandboxCipher.prototype.update = function update(data, inputEncoding, outputEncoding) {
+              var buf;
               if (typeof data === 'string') {
-                this._chunks.push(Buffer.from(data, inputEncoding || 'utf8'));
+                buf = Buffer.from(data, inputEncoding || 'utf8');
               } else {
-                this._chunks.push(Buffer.from(data));
+                buf = Buffer.from(data);
               }
-              // Return empty buffer/string to maintain API shape; real data comes from final()
+              if (this._sessionId >= 0) {
+                var resultBase64 = _cryptoCipherivUpdate.applySync(undefined, [this._sessionId, buf.toString('base64')]);
+                var resultBuffer = Buffer.from(resultBase64, 'base64');
+                if (outputEncoding && outputEncoding !== 'buffer') return resultBuffer.toString(outputEncoding);
+                return resultBuffer;
+              }
+              this._chunks.push(buf);
               if (outputEncoding && outputEncoding !== 'buffer') return '';
               return Buffer.alloc(0);
             };
             SandboxCipher.prototype.final = function final(outputEncoding) {
               if (this._finalized) throw new Error('Attempting to call final() after already finalized');
               this._finalized = true;
-              var combined = Buffer.concat(this._chunks);
-              var resultJson = _cryptoCipheriv.applySync(undefined, [
-                this._algorithm,
-                this._key.toString('base64'),
-                this._iv.toString('base64'),
-                combined.toString('base64'),
-              ]);
-              var parsed = JSON.parse(resultJson);
-              if (parsed.authTag) {
-                this._authTag = Buffer.from(parsed.authTag, 'base64');
+              if (this._sessionId >= 0) {
+                var resultJson = _cryptoCipherivFinal.applySync(undefined, [this._sessionId]);
+                var parsed = JSON.parse(resultJson);
+                if (parsed.authTag) this._authTag = Buffer.from(parsed.authTag, 'base64');
+                var resultBuffer = Buffer.from(parsed.data, 'base64');
+                if (outputEncoding && outputEncoding !== 'buffer') return resultBuffer.toString(outputEncoding);
+                return resultBuffer;
               }
-              var resultBuffer = Buffer.from(parsed.data, 'base64');
-              if (outputEncoding && outputEncoding !== 'buffer') return resultBuffer.toString(outputEncoding);
-              return resultBuffer;
+              var combined = Buffer.concat(this._chunks);
+              var resultJson2 = _cryptoCipheriv.applySync(undefined, [
+                this._algorithm, this._key.toString('base64'), this._iv.toString('base64'), combined.toString('base64'),
+              ]);
+              var parsed2 = JSON.parse(resultJson2);
+              if (parsed2.authTag) this._authTag = Buffer.from(parsed2.authTag, 'base64');
+              var resultBuffer2 = Buffer.from(parsed2.data, 'base64');
+              if (outputEncoding && outputEncoding !== 'buffer') return resultBuffer2.toString(outputEncoding);
+              return resultBuffer2;
             };
             SandboxCipher.prototype.getAuthTag = function getAuthTag() {
               if (!this._finalized) throw new Error('Cannot call getAuthTag before final()');
               if (!this._authTag) throw new Error('Auth tag is only available for GCM ciphers');
               return this._authTag;
             };
-            SandboxCipher.prototype.setAAD = function setAAD() { return this; };
-            SandboxCipher.prototype.setAutoPadding = function setAutoPadding() { return this; };
+            SandboxCipher.prototype.setAAD = function setAAD(data) {
+              if (this._sessionId >= 0) {
+                var buf = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data);
+                _cryptoCipherivUpdate.applySync(undefined, [this._sessionId, '', JSON.stringify({ setAAD: buf.toString('base64') })]);
+              }
+              return this;
+            };
+            SandboxCipher.prototype.setAutoPadding = function setAutoPadding(autoPadding) {
+              if (this._sessionId >= 0) {
+                _cryptoCipherivUpdate.applySync(undefined, [this._sessionId, '', JSON.stringify({ setAutoPadding: autoPadding !== false })]);
+              }
+              return this;
+            };
             result.createCipheriv = function createCipheriv(algorithm, key, iv) {
               return new SandboxCipher(algorithm, key, iv);
             };
             result.Cipheriv = SandboxCipher;
           }
 
-          if (typeof _cryptoDecipheriv !== 'undefined') {
+          if (typeof _cryptoDecipheriv !== 'undefined' || _useStatefulCipher) {
             function SandboxDecipher(algorithm, key, iv) {
               this._algorithm = algorithm;
               this._key = typeof key === 'string' ? Buffer.from(key, 'utf8') : Buffer.from(key);
               this._iv = typeof iv === 'string' ? Buffer.from(iv, 'utf8') : Buffer.from(iv);
-              this._chunks = [];
               this._authTag = null;
               this._finalized = false;
+              if (_useStatefulCipher) {
+                this._sessionId = _cryptoCipherivCreate.applySync(undefined, [
+                  'decipher', algorithm, this._key.toString('base64'), this._iv.toString('base64'),
+                ]);
+              } else {
+                this._sessionId = -1;
+                this._chunks = [];
+              }
             }
             SandboxDecipher.prototype.update = function update(data, inputEncoding, outputEncoding) {
+              var buf;
               if (typeof data === 'string') {
-                this._chunks.push(Buffer.from(data, inputEncoding || 'utf8'));
+                buf = Buffer.from(data, inputEncoding || 'utf8');
               } else {
-                this._chunks.push(Buffer.from(data));
+                buf = Buffer.from(data);
               }
+              if (this._sessionId >= 0) {
+                var resultBase64 = _cryptoCipherivUpdate.applySync(undefined, [this._sessionId, buf.toString('base64')]);
+                var resultBuffer = Buffer.from(resultBase64, 'base64');
+                if (outputEncoding && outputEncoding !== 'buffer') return resultBuffer.toString(outputEncoding);
+                return resultBuffer;
+              }
+              this._chunks.push(buf);
               if (outputEncoding && outputEncoding !== 'buffer') return '';
               return Buffer.alloc(0);
             };
             SandboxDecipher.prototype.final = function final(outputEncoding) {
               if (this._finalized) throw new Error('Attempting to call final() after already finalized');
               this._finalized = true;
+              if (this._sessionId >= 0) {
+                if (this._authTag) {
+                  _cryptoCipherivUpdate.applySync(undefined, [this._sessionId, '', JSON.stringify({ setAuthTag: this._authTag.toString('base64') })]);
+                }
+                var resultJson = _cryptoCipherivFinal.applySync(undefined, [this._sessionId]);
+                var parsed = JSON.parse(resultJson);
+                var resultBuffer = Buffer.from(parsed.data, 'base64');
+                if (outputEncoding && outputEncoding !== 'buffer') return resultBuffer.toString(outputEncoding);
+                return resultBuffer;
+              }
               var combined = Buffer.concat(this._chunks);
               var options = {};
-              if (this._authTag) {
-                options.authTag = this._authTag.toString('base64');
-              }
+              if (this._authTag) options.authTag = this._authTag.toString('base64');
               var resultBase64 = _cryptoDecipheriv.applySync(undefined, [
-                this._algorithm,
-                this._key.toString('base64'),
-                this._iv.toString('base64'),
-                combined.toString('base64'),
-                JSON.stringify(options),
+                this._algorithm, this._key.toString('base64'), this._iv.toString('base64'), combined.toString('base64'), JSON.stringify(options),
               ]);
-              var resultBuffer = Buffer.from(resultBase64, 'base64');
-              if (outputEncoding && outputEncoding !== 'buffer') return resultBuffer.toString(outputEncoding);
-              return resultBuffer;
+              var resultBuffer2 = Buffer.from(resultBase64, 'base64');
+              if (outputEncoding && outputEncoding !== 'buffer') return resultBuffer2.toString(outputEncoding);
+              return resultBuffer2;
             };
             SandboxDecipher.prototype.setAuthTag = function setAuthTag(tag) {
               this._authTag = typeof tag === 'string' ? Buffer.from(tag, 'base64') : Buffer.from(tag);
               return this;
             };
-            SandboxDecipher.prototype.setAAD = function setAAD() { return this; };
-            SandboxDecipher.prototype.setAutoPadding = function setAutoPadding() { return this; };
+            SandboxDecipher.prototype.setAAD = function setAAD(data) {
+              if (this._sessionId >= 0) {
+                var buf = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data);
+                _cryptoCipherivUpdate.applySync(undefined, [this._sessionId, '', JSON.stringify({ setAAD: buf.toString('base64') })]);
+              }
+              return this;
+            };
+            SandboxDecipher.prototype.setAutoPadding = function setAutoPadding(autoPadding) {
+              if (this._sessionId >= 0) {
+                _cryptoCipherivUpdate.applySync(undefined, [this._sessionId, '', JSON.stringify({ setAutoPadding: autoPadding !== false })]);
+              }
+              return this;
+            };
             result.createDecipheriv = function createDecipheriv(algorithm, key, iv) {
               return new SandboxDecipher(algorithm, key, iv);
             };

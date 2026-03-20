@@ -1961,9 +1961,9 @@ class NetSocket {
   private _connectHost = "";
   private _connectPort = 0;
 
-  // Stream state stubs for compatibility
-  _readableState = { endEmitted: false };
-  _writableState = { finished: false, errorEmitted: false };
+  // Stream state stubs for compatibility (ssh2 checks _readableState.ended)
+  _readableState = { endEmitted: false, ended: false };
+  _writableState = { finished: false, errorEmitted: false, ended: false };
 
   constructor(_options?: Record<string, unknown>) {
     // Options like { allowHalfOpen } are accepted but ignored
@@ -2172,6 +2172,7 @@ class NetSocket {
   _onEnd(): void {
     this.readable = false;
     this._readableState.endEmitted = true;
+    this._readableState.ended = true;
     this.readyState = this.writable ? "writeOnly" : "closed";
     this.emit("end");
   }
