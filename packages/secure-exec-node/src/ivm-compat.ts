@@ -11,7 +11,7 @@
 
 import {
 	HOST_BRIDGE_GLOBAL_KEY_LIST,
-} from "@secure-exec/core/internal/shared/bridge-contract";
+} from "./bridge-contract.js";
 
 /**
  * Generate JS source for the ivm-compat shim.

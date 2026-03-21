@@ -4,7 +4,7 @@
 
 import { Buffer } from "buffer";
 import type * as nodeFs from "fs";
-import type { FsFacadeBridge } from "../shared/bridge-contract.js";
+import type { FsFacadeBridge } from "../bridge-contract.js";
 
 // Declare globals that are set up by the host environment
 declare const _fs: FsFacadeBridge;

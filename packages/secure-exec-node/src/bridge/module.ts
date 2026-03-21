@@ -1,9 +1,9 @@
-import { exposeCustomGlobal } from "../shared/global-exposure.js";
+import { exposeCustomGlobal } from "@secure-exec/core/internal/shared/global-exposure";
 import type {
 	ModuleCacheBridgeRecord,
 	RequireFromBridgeFn,
 	ResolveModuleBridgeRef,
-} from "../shared/bridge-contract.js";
+} from "../bridge-contract.js";
 
 // Module polyfill for the sandbox
 // Provides module.createRequire and other module utilities for npm compatibility

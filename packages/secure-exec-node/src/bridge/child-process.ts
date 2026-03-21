@@ -5,7 +5,7 @@
 // processes are running. See: docs-internal/node/ACTIVE_HANDLES.md
 
 import type * as nodeChildProcess from "child_process";
-import { exposeCustomGlobal } from "../shared/global-exposure.js";
+import { exposeCustomGlobal } from "@secure-exec/core/internal/shared/global-exposure";
 import type {
 	ChildProcessKillBridgeRef,
 	ChildProcessSpawnStartBridgeRef,
@@ -14,7 +14,7 @@ import type {
 	ChildProcessStdinWriteBridgeRef,
 	RegisterHandleBridgeFn,
 	UnregisterHandleBridgeFn,
-} from "../shared/bridge-contract.js";
+} from "../bridge-contract.js";
 
 // Host bridge declarations for streaming mode
 declare const _childProcessSpawnStart:

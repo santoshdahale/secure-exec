@@ -19,11 +19,11 @@ import type {
 	ProcessLogBridgeRef,
 	PtySetRawModeBridgeRef,
 	ScheduleTimerBridgeRef,
-} from "../shared/bridge-contract.js";
+} from "../bridge-contract.js";
 import {
   exposeCustomGlobal,
   exposeMutableRuntimeStateGlobal,
-} from "../shared/global-exposure.js";
+} from "@secure-exec/core/internal/shared/global-exposure";
 
 
 /**

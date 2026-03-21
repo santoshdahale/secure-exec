@@ -28,7 +28,7 @@ import {
 } from "node:crypto";
 import {
 	HOST_BRIDGE_GLOBAL_KEYS,
-} from "@secure-exec/core/internal/shared/bridge-contract";
+} from "./bridge-contract.js";
 import {
 	normalizeBuiltinSpecifier,
 	resolveModule,

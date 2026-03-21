@@ -54,6 +54,16 @@
       "types": "./dist/module-access.d.ts",
       "import": "./dist/module-access.js",
       "default": "./dist/module-access.js"
+    },
+    "./internal/bridge-contract": {
+      "types": "./dist/bridge-contract.d.ts",
+      "import": "./dist/bridge-contract.js",
+      "default": "./dist/bridge-contract.js"
+    },
+    "./internal/bridge": {
+      "types": "./dist/bridge/index.d.ts",
+      "import": "./dist/bridge/index.js",
+      "default": "./dist/bridge/index.js"
     }
   },
   "scripts": {
@@ -70,6 +80,9 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2"
+    "buffer": "^6.0.3",
+    "text-encoding-utf-8": "^1.0.2",
+    "typescript": "^5.7.2",
+    "whatwg-url": "^15.1.0"
   }
 }

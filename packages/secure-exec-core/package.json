@@ -85,11 +85,10 @@
     "check-types:src": "tsc --noEmit",
     "check-types:isolate-runtime": "tsc -p tsconfig.isolate-runtime.json --noEmit",
     "check-types": "pnpm run build:generated && pnpm run check-types:src && pnpm run check-types:isolate-runtime",
-    "build:bridge": "esbuild src/bridge/index.ts --bundle --format=iife --global-name=bridge --outfile=dist/bridge.js",
     "build:polyfills": "node scripts/build-polyfills.mjs",
     "build:isolate-runtime": "node scripts/build-isolate-runtime.mjs",
     "build:generated": "pnpm run build:polyfills && pnpm run build:isolate-runtime",
-    "build": "pnpm run build:bridge && pnpm run build:generated && tsc",
+    "build": "pnpm run build:generated && tsc",
     "test": "echo 'no tests yet'"
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-// Re-exported from @secure-exec/core
+// Re-exported from @secure-exec/node (canonical source moved from core in US-002)
 export type {
 	BridgeApplyRef,
 	BridgeApplySyncPromiseRef,

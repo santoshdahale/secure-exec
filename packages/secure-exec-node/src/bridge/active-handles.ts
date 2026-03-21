@@ -1,4 +1,4 @@
-import { exposeCustomGlobal } from "../shared/global-exposure.js";
+import { exposeCustomGlobal } from "@secure-exec/core/internal/shared/global-exposure";
 
 /**
  * Active Handles: Mechanism to keep the sandbox alive for async operations.

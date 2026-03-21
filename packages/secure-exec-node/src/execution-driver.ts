@@ -799,7 +799,7 @@ import {
 } from "@secure-exec/core/internal/shared/global-exposure";
 import {
 	HOST_BRIDGE_GLOBAL_KEYS,
-} from "@secure-exec/core/internal/shared/bridge-contract";
+} from "./bridge-contract.js";
 
 function getHardenedGlobals(): string[] { return HARDENED_NODE_CUSTOM_GLOBALS; }
 function getMutableGlobals(): string[] { return MUTABLE_NODE_CUSTOM_GLOBALS; }

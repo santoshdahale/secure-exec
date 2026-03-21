@@ -6,7 +6,7 @@ const MAX_HTTP_BODY_BYTES = 50 * 1024 * 1024; // 50 MB
 
 import type * as nodeHttp from "http";
 import type * as nodeDns from "dns";
-import { exposeCustomGlobal } from "../shared/global-exposure.js";
+import { exposeCustomGlobal } from "@secure-exec/core/internal/shared/global-exposure";
 import type {
 	NetworkDnsLookupRawBridgeRef,
 	NetworkFetchRawBridgeRef,
@@ -23,7 +23,7 @@ import type {
 	NetSocketEndRawBridgeRef,
 	NetSocketDestroyRawBridgeRef,
 	NetSocketUpgradeTlsRawBridgeRef,
-} from "../shared/bridge-contract.js";
+} from "../bridge-contract.js";
 
 // Declare host bridge References
 declare const _networkFetchRaw: NetworkFetchRawBridgeRef;

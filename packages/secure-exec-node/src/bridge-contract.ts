@@ -1,8 +1,4 @@
 /**
- * @deprecated Canonical source moved to @secure-exec/node (US-002).
- * This copy is retained for backward compatibility during phased migration.
- * Will be removed in US-005 when kernel merges into core.
- *
  * Bridge contract: typed declarations for the globals shared between the
  * host (Node.js) and the isolate (sandbox V8 context).
  *
