@@ -10,6 +10,11 @@ Priority order is:
 3. Maintainability and performance follow-ups
 4. Examples, validation breadth, and product-shaping work
 
+## Proposal: Kernel-First Package Consolidation
+
+- [ ] Migrate to kernel-first architecture — see [`docs-internal/proposal-kernel-consolidation.md`](proposal-kernel-consolidation.md)
+  - Consolidate `@secure-exec/kernel` into `@secure-exec/core`, merge runtime drivers into user-facing packages, replace `NodeRuntime`/`SystemDriver` API with `createKernel()` + `kernel.mount()` + `kernel.exec()`.
+
 ## Priority 0: Security and Host Protection
 
 - [ ] Finish end-to-end payload guards for remaining browser/bridge paths.
