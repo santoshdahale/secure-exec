@@ -5,7 +5,8 @@
 
 import * as net from "node:net";
 import * as tls from "node:tls";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync, existsSync } from "node:fs";
+import { dirname as pathDirname, join as pathJoin, resolve as pathResolve } from "node:path";
 import { createRequire } from "node:module";
 import {
 	randomFillSync,
@@ -34,8 +35,9 @@ import {
 } from "@secure-exec/core";
 import { normalizeBuiltinSpecifier } from "./builtin-modules.js";
 import { resolveModule, loadFile } from "./package-bundler.js";
-import { transformDynamicImport } from "@secure-exec/core/internal/shared/esm-utils";
+import { transformDynamicImport, isESM } from "@secure-exec/core/internal/shared/esm-utils";
 import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
+import { getStaticBuiltinWrapperSource, getEmptyBuiltinESMWrapper } from "./esm-compiler.js";
 import {
 	checkBridgeBudget,
 	assertPayloadByteLength,
@@ -954,6 +956,169 @@ export interface ModuleResolutionBridgeDeps {
 	hostToSandboxPath: (hostPath: string) => string;
 }
 
+/**
+ * Convert ESM source to CJS-compatible code for require() loading.
+ * Handles import declarations, export declarations, and re-exports.
+ */
+/** Strip // and /* comments from an export/import list string. */
+function stripComments(s: string): string {
+	return s.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+function convertEsmToCjs(source: string, filePath: string): string {
+	if (!isESM(source, filePath)) return source;
+
+	let code = source;
+
+	// Remove const __filename/dirname declarations (already provided by CJS wrapper)
+	code = code.replace(/^\s*(?:const|let|var)\s+__filename\s*=\s*[^;]+;?\s*$/gm, "// __filename provided by CJS wrapper");
+	code = code.replace(/^\s*(?:const|let|var)\s+__dirname\s*=\s*[^;]+;?\s*$/gm, "// __dirname provided by CJS wrapper");
+
+	// import X from 'Y' → const X = require('Y')
+	code = code.replace(
+		/^\s*import\s+(\w+)\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
+		"const $1 = (function(m) { return m && m.__esModule ? m.default : m; })(require('$2'));",
+	);
+
+	// import { a, b as c } from 'Y' → const { a, b: c } = require('Y')
+	code = code.replace(
+		/^\s*import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
+		(_match, imports: string, mod: string) => {
+			const mapped = stripComments(imports).split(",").map((s: string) => {
+				const t = s.trim();
+				if (!t) return null;
+				const parts = t.split(/\s+as\s+/);
+				return parts.length === 2 ? `${parts[0].trim()}: ${parts[1].trim()}` : t;
+			}).filter(Boolean).join(", ");
+			return `const { ${mapped} } = require('${mod}');`;
+		},
+	);
+
+	// import * as X from 'Y' → const X = require('Y')
+	code = code.replace(
+		/^\s*import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
+		"const $1 = require('$2');",
+	);
+
+	// Side-effect imports: import 'Y' → require('Y')
+	code = code.replace(
+		/^\s*import\s+['"]([^'"]+)['"]\s*;?/gm,
+		"require('$1');",
+	);
+
+	// export { a, b } from 'Y' → re-export
+	code = code.replace(
+		/^\s*export\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
+		(_match, exports: string, mod: string) => {
+			return stripComments(exports).split(",").map((s: string) => {
+				const t = s.trim();
+				if (!t) return "";
+				const parts = t.split(/\s+as\s+/);
+				const local = parts[0].trim();
+				const exported = parts.length === 2 ? parts[1].trim() : local;
+				return `Object.defineProperty(exports, '${exported}', { get: () => require('${mod}').${local}, enumerable: true });`;
+			}).filter(Boolean).join("\n");
+		},
+	);
+
+	// export * from 'Y'
+	code = code.replace(
+		/^\s*export\s+\*\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
+		"Object.assign(exports, require('$1'));",
+	);
+
+	// export default X → module.exports.default = X
+	code = code.replace(
+		/^\s*export\s+default\s+/gm,
+		"module.exports.default = ",
+	);
+
+	// export const/let/var X = ... → const/let/var X = ...; exports.X = X;
+	code = code.replace(
+		/^\s*export\s+(const|let|var)\s+(\w+)\s*=/gm,
+		"$1 $2 =",
+	);
+	// Capture the names separately to add exports at the end
+	const exportedVars: string[] = [];
+	for (const m of source.matchAll(/^\s*export\s+(?:const|let|var)\s+(\w+)\s*=/gm)) {
+		exportedVars.push(m[1]);
+	}
+
+	// export function X(...) → function X(...); exports.X = X;
+	code = code.replace(
+		/^\s*export\s+function\s+(\w+)/gm,
+		"function $1",
+	);
+	for (const m of source.matchAll(/^\s*export\s+function\s+(\w+)/gm)) {
+		exportedVars.push(m[1]);
+	}
+
+	// export class X → class X; exports.X = X;
+	code = code.replace(
+		/^\s*export\s+class\s+(\w+)/gm,
+		"class $1",
+	);
+	for (const m of source.matchAll(/^\s*export\s+class\s+(\w+)/gm)) {
+		exportedVars.push(m[1]);
+	}
+
+	// export { a, b } (local re-export without from)
+	code = code.replace(
+		/^\s*export\s+\{([^}]+)\}\s*;?/gm,
+		(_match, exports: string) => {
+			return stripComments(exports).split(",").map((s: string) => {
+				const t = s.trim();
+				if (!t) return "";
+				const parts = t.split(/\s+as\s+/);
+				const local = parts[0].trim();
+				const exported = parts.length === 2 ? parts[1].trim() : local;
+				return `Object.defineProperty(exports, '${exported}', { get: () => ${local}, enumerable: true });`;
+			}).filter(Boolean).join("\n");
+		},
+	);
+
+	// Append named exports for exported vars/functions/classes
+	if (exportedVars.length > 0) {
+		const lines = exportedVars.map(
+			(name) => `Object.defineProperty(exports, '${name}', { get: () => ${name}, enumerable: true });`,
+		);
+		code += "\n" + lines.join("\n");
+	}
+
+	return code;
+}
+
+/**
+ * Resolve a package specifier by walking up directories and reading package.json exports.
+ * Handles both root imports ('pkg') and subpath imports ('pkg/sub').
+ */
+function resolvePackageExport(req: string, startDir: string): string | null {
+	// Split into package name and subpath
+	const parts = req.startsWith("@") ? req.split("/") : [req.split("/")[0], ...req.split("/").slice(1)];
+	const pkgName = req.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+	const subpath = req.startsWith("@")
+		? (parts.length > 2 ? "./" + parts.slice(2).join("/") : ".")
+		: (parts.length > 1 ? "./" + parts.slice(1).join("/") : ".");
+
+	let cur = startDir;
+	while (cur !== pathDirname(cur)) {
+		const pkgJsonPath = pathJoin(cur, "node_modules", ...pkgName.split("/"), "package.json");
+		if (existsSync(pkgJsonPath)) {
+			const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
+			let entry: string | undefined;
+			if (pkg.exports) {
+				const exportEntry = pkg.exports[subpath];
+				if (typeof exportEntry === "string") entry = exportEntry;
+				else if (exportEntry) entry = exportEntry.import ?? exportEntry.default;
+			}
+			if (!entry && subpath === ".") entry = pkg.main;
+			if (entry) return pathResolve(pathDirname(pkgJsonPath), entry);
+		}
+		cur = pathDirname(cur);
+	}
+	return null;
+}
+
 const hostRequire = createRequire(import.meta.url);
 
 /**
@@ -971,6 +1136,7 @@ export function buildModuleResolutionBridgeHandlers(
 	const K = HOST_BRIDGE_GLOBAL_KEYS;
 
 	// Sync require.resolve — translates sandbox paths and uses Node.js resolution.
+	// Falls back to realpath + manual package.json resolution for pnpm/ESM packages.
 	handlers[K.resolveModuleSync] = (request: unknown, fromDir: unknown) => {
 		const req = String(request);
 
@@ -982,23 +1148,38 @@ export function buildModuleResolutionBridgeHandlers(
 		const sandboxDir = String(fromDir);
 		const hostDir = deps.sandboxToHostPath(sandboxDir) ?? sandboxDir;
 
+		// Try require.resolve first
 		try {
 			const resolved = hostRequire.resolve(req, { paths: [hostDir] });
-			// Translate resolved host path back to sandbox path
 			return deps.hostToSandboxPath(resolved);
-		} catch {
-			return null;
-		}
+		} catch { /* CJS resolution failed */ }
+
+		// Fallback: follow symlinks and try ESM-compatible resolution
+		try {
+			let realDir: string;
+			try { realDir = realpathSync(hostDir); } catch { realDir = hostDir; }
+			// Try require.resolve from real path
+			try {
+				const resolved = hostRequire.resolve(req, { paths: [realDir] });
+				return deps.hostToSandboxPath(resolved);
+			} catch { /* ESM-only, manual resolution */ }
+			// Manual package.json resolution for ESM packages
+			const resolved = resolvePackageExport(req, realDir);
+			if (resolved) return deps.hostToSandboxPath(resolved);
+		} catch { /* fallback failed */ }
+		return null;
 	};
 
 	// Sync file read — translates sandbox path and reads via readFileSync.
-	// Also transforms dynamic import() calls for V8 compatibility.
+	// Transforms dynamic import() to __dynamicImport() and converts ESM to CJS
+	// for npm packages so require() can load ESM-only dependencies.
 	handlers[K.loadFileSync] = (filePath: unknown) => {
 		const sandboxPath = String(filePath);
 		const hostPath = deps.sandboxToHostPath(sandboxPath) ?? sandboxPath;
 
 		try {
-			const source = readFileSync(hostPath, "utf-8");
+			let source = readFileSync(hostPath, "utf-8");
+			source = convertEsmToCjs(source, hostPath);
 			return transformDynamicImport(source);
 		} catch {
 			return null;
@@ -1081,6 +1262,8 @@ export function buildConsoleBridgeHandlers(deps: ConsoleBridgeDeps): BridgeHandl
 export interface ModuleLoadingBridgeDeps {
 	filesystem: VirtualFileSystem;
 	resolutionCache: ResolutionCache;
+	/** Convert sandbox path to host path for pnpm/symlink resolution fallback. */
+	sandboxToHostPath?: (sandboxPath: string) => string | null;
 }
 
 /** Build module loading bridge handlers (loadPolyfill, resolveModule, loadFile). */
@@ -1131,16 +1314,59 @@ export function buildModuleLoadingBridgeHandlers(
 	};
 
 	// Async module path resolution via VFS
+	// V8 ESM module resolve sends the full file path as referrer, not a directory.
+	// Extract dirname when the referrer looks like a file path.
+	// Falls back to Node.js require.resolve() with realpath for pnpm compatibility.
 	handlers[K.resolveModule] = async (request: unknown, fromDir: unknown): Promise<string | null> => {
 		const req = String(request);
 		const builtin = normalizeBuiltinSpecifier(req);
 		if (builtin) return builtin;
-		return resolveModule(req, String(fromDir), deps.filesystem, "require", deps.resolutionCache);
+		let dir = String(fromDir);
+		if (/\.[cm]?[jt]sx?$/.test(dir)) {
+			const lastSlash = dir.lastIndexOf("/");
+			if (lastSlash > 0) dir = dir.slice(0, lastSlash);
+		}
+		const vfsResult = await resolveModule(req, dir, deps.filesystem, "require", deps.resolutionCache);
+		if (vfsResult) return vfsResult;
+		// Fallback: resolve through real host paths for pnpm symlink compatibility.
+		const hostDir = deps.sandboxToHostPath?.(dir) ?? dir;
+		try {
+			let realDir: string;
+			try { realDir = realpathSync(hostDir); } catch { realDir = hostDir; }
+			// Try require.resolve (works for CJS packages)
+			try {
+				return hostRequire.resolve(req, { paths: [realDir] });
+			} catch { /* ESM-only, try manual resolution */ }
+			// Manual package.json resolution for ESM packages
+			const resolved = resolvePackageExport(req, realDir);
+			if (resolved) return resolved;
+		} catch { /* resolution failed */ }
+		return null;
 	};
 
-	// Async file read + dynamic import transform
+	// Dynamic import bridge — returns null to fall back to require() in the sandbox.
+	// V8 ESM module mode handles static imports natively via module_resolve_callback;
+	// this handler covers the __dynamicImport() path used in exec mode.
+	handlers[K.dynamicImport] = async (): Promise<null> => null;
+
+	// Async file read + dynamic import transform.
+	// Also serves ESM wrappers for built-in modules (fs, path, etc.) when
+	// used from V8's ES module system which calls _loadFile after _resolveModule.
 	handlers[K.loadFile] = async (path: unknown): Promise<string | null> => {
-		const source = await loadFile(String(path), deps.filesystem);
+		const p = String(path);
+		// Built-in module ESM wrappers (V8 module system resolves 'fs' then loads it)
+		const bare = p.replace(/^node:/, "");
+		const builtin = getStaticBuiltinWrapperSource(bare);
+		if (builtin) return builtin;
+		// Polyfill-backed builtins (crypto, zlib, etc.)
+		if (hasPolyfill(bare)) {
+			const code = await bundlePolyfill(bare);
+			// Wrap polyfill CJS bundle as ESM: export default + named re-exports
+			return `const _p = (function(){var module={exports:{}};var exports=module.exports;${code};return module.exports})();\nexport default _p;\n` +
+				`for(const[k,v]of Object.entries(_p)){if(k!=='default'&&/^[A-Za-z_$]/.test(k))globalThis['__esm_'+k]=v;}\n`;
+		}
+		// Regular file — keep ESM source intact for V8 module system
+		const source = await loadFile(p, deps.filesystem);
 		if (source === null) return null;
 		return transformDynamicImport(source);
 	};

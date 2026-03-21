@@ -295,13 +295,17 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	private memoryLimit: number;
 	private disposed: boolean = false;
 	private flattenedBindings: FlattenedBinding[] | null = null;
+	// Unwrapped filesystem for path translation (toHostPath/toSandboxPath)
+	private rawFilesystem: VirtualFileSystem | undefined;
 
 	constructor(options: NodeExecutionDriverOptions) {
 		this.memoryLimit = options.memoryLimit ?? 128;
 		const system = options.system;
 		const permissions = system.permissions;
-		const filesystem = system.filesystem
-			? wrapFileSystem(system.filesystem, permissions)
+		// Keep unwrapped filesystem for path translation (toHostPath/toSandboxPath)
+		this.rawFilesystem = system.filesystem;
+		const filesystem = this.rawFilesystem
+			? wrapFileSystem(this.rawFilesystem, permissions)
 			: createFsStub();
 		const commandExecutor = system.commandExecutor
 			? wrapCommandExecutor(system.commandExecutor, permissions)
@@ -459,6 +463,10 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				...buildModuleLoadingBridgeHandlers({
 					filesystem: s.filesystem,
 					resolutionCache: s.resolutionCache,
+					sandboxToHostPath: (p) => {
+						const rfs = this.rawFilesystem as any;
+						return typeof rfs?.toHostPath === "function" ? rfs.toHostPath(p) : null;
+					},
 				}, {
 					// Dispatch handlers routed through _loadPolyfill for V8 runtime compat
 					...cryptoResult.handlers,
@@ -525,12 +533,12 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				}),
 				...buildModuleResolutionBridgeHandlers({
 					sandboxToHostPath: (p) => {
-						const fs = s.filesystem as any;
-						return typeof fs.toHostPath === "function" ? fs.toHostPath(p) : null;
+						const rfs = this.rawFilesystem as any;
+						return typeof rfs?.toHostPath === "function" ? rfs.toHostPath(p) : null;
 					},
 					hostToSandboxPath: (p) => {
-						const fs = s.filesystem as any;
-						return typeof fs.toSandboxPath === "function" ? fs.toSandboxPath(p) : p;
+						const rfs = this.rawFilesystem as any;
+						return typeof rfs?.toSandboxPath === "function" ? rfs.toSandboxPath(p) : p;
 					},
 				}),
 				...buildPtyBridgeHandlers({

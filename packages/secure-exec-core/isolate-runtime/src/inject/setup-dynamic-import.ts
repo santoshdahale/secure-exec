@@ -20,9 +20,6 @@ const __dynamicImportHandler = async function (
 		typeof fromPath === "string" && fromPath.length > 0
 			? fromPath
 			: __fallbackReferrer;
-	const allowRequireFallback =
-		request.endsWith(".cjs") || request.endsWith(".json");
-
 	const namespace = await globalThis._dynamicImport.apply(
 		undefined,
 		[request, referrer],
@@ -33,10 +30,8 @@ const __dynamicImportHandler = async function (
 		return namespace;
 	}
 
-	if (!allowRequireFallback) {
-		throw new Error("Cannot find module '" + request + "'");
-	}
-
+	// Always fall back to require() — handles both CJS packages and ESM
+	// packages (the bridge converts ESM source to CJS at load time).
 	const runtimeRequire = globalThis.require;
 	if (typeof runtimeRequire !== "function") {
 		throw new Error("Cannot find module '" + request + "'");
