@@ -363,8 +363,9 @@ fn session_thread(
                             } else {
                                 isolate::create_isolate(heap_limit_mb)
                             };
-                            // Must re-apply WASM disable after every restore (not captured in snapshot)
+                            // Must re-apply after every restore (not captured in snapshot)
                             execution::disable_wasm(&mut iso);
+                            execution::enable_dynamic_import(&mut iso);
                             let ctx = isolate::create_context(&mut iso);
                             _v8_context = Some(ctx);
                             v8_isolate = Some(iso);
@@ -490,6 +491,7 @@ fn session_thread(
                             let scope = &mut v8::ContextScope::new(scope, ctx);
                             let (c, e) = execution::execute_script(
                                 scope,
+                                Some(&bridge_ctx),
                                 bridge_code_for_exec,
                                 &user_code,
                                 &mut bridge_cache,
