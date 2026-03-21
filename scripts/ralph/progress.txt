@@ -7,6 +7,11 @@
 - NetworkAccessRequest.op includes "connect" (used by net socket bridge)
 - Core's RuntimeDriver (runtime-driver.ts) is NOT the same as kernel's RuntimeDriver (types.ts) — don't confuse them
 - PTY resource-exhaustion test "single large write (1MB+)" is a pre-existing flaky failure on main
+- Bridge files import global-exposure from @secure-exec/core/internal/shared/global-exposure (package export, not relative path)
+- Bridge files import bridge-contract from ../bridge-contract.js (sibling in node/src)
+- Cross-package relative imports (e.g., ../../../secure-exec-node/src/) cause rootDir violation in tsc — use @deprecated copy or package imports instead
+- VFS example-virtual-file-system-sqlite and example-virtual-file-system-s3 have pre-existing typecheck failures from US-001
+- bridge-registry-policy test "keeps canonical bridge key lists" has pre-existing failure (inventory out of sync)
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -31,4 +36,28 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - Core's RuntimeDriver (SDK facade) is completely different from kernel's RuntimeDriver (mount interface) — same name, different types
   - When updating VFS interface, must update ALL implementations: InMemoryFileSystem, NodeFileSystem, ModuleAccessFileSystem, OpfsFileSystem, createKernelVfsAdapter, createHostFallbackVfs, wrapFileSystem, createFsStub
   - PTY resource-exhaustion test "single large write (1MB+)" is a pre-existing failure on main
+---
+
+## 2026-03-21 03:30 - US-002
+- Moved bridge polyfill source files (fs, process, child-process, network, module, os, polyfills, active-handles, index) from core to node
+- Moved bridge-contract.ts (canonical bridge type definitions and global key constants) to node
+- Left @deprecated copy of bridge-contract.ts in core/src/shared for backward compat
+- Updated all imports in bridge files to use local ../bridge-contract.js and @secure-exec/core/internal/shared/global-exposure
+- Updated node package files (ivm-compat, bridge-handlers, execution-driver) to import bridge-contract locally
+- Updated type tests to reference new bridge file locations
+- Fixed pre-existing stale esm-compiler.ts reference in bridge-registry-policy test
+- Added buffer, text-encoding-utf-8, whatwg-url as node devDependencies
+- Removed build:bridge from core package.json (source moved, US-004 will re-add to node)
+- Added ./internal/bridge-contract and ./internal/bridge exports to node package.json
+- Files changed:
+  - packages/secure-exec-core/package.json, src/shared/bridge-contract.ts
+  - packages/secure-exec-node/package.json, src/bridge-contract.ts, src/bridge/*, src/bridge-handlers.ts, src/execution-driver.ts, src/ivm-compat.ts
+  - packages/secure-exec/src/shared/bridge-contract.ts, tests/bridge-registry-policy.test.ts, tests/types/*.test.ts
+  - pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - Cross-package relative imports (../../other-pkg/src/) break tsc rootDir constraint — use @deprecated copies or package imports instead
+  - Bridge files depend on external packages (text-encoding-utf-8, whatwg-url, buffer) for vitest resolution — devDeps must include them
+  - Core's ./internal/shared/* export wildcard covers any .ts file in shared/ — useful for proxy files
+  - bridge-registry-policy test has multiple pre-existing failures (inventory out of sync, esm-compiler.ts reference stale)
+  - Python runtime tests fail independently (PythonRuntimeClass constructor issue) — not related to bridge changes
 ---

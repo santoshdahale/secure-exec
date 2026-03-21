@@ -31,7 +31,7 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 2 step 1. Move the source files first, update build pipeline in a follow-up story."
     },
     {
