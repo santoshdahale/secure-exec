@@ -1,8 +1,8 @@
 // Re-exported from @secure-exec/core
 export type {
-	BatchResolveModulesBridgeRef,
-	BatchResolveModulesRequest,
-	BatchResolveModulesResult,
+	BridgeApplyRef,
+	BridgeApplySyncPromiseRef,
+	BridgeApplySyncRef,
 	BridgeGlobalKey,
 	ChildProcessKillBridgeRef,
 	ChildProcessSpawnStartBridgeRef,
@@ -41,6 +41,9 @@ export type {
 	NetworkHttpRequestRawBridgeRef,
 	NetworkHttpServerCloseRawBridgeRef,
 	NetworkHttpServerListenRawBridgeRef,
+	UpgradeSocketWriteRawBridgeRef,
+	UpgradeSocketEndRawBridgeRef,
+	UpgradeSocketDestroyRawBridgeRef,
 	ProcessErrorBridgeRef,
 	ProcessLogBridgeRef,
 	RegisterHandleBridgeFn,

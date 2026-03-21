@@ -15,16 +15,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./internal/execution": {
-      "types": "./dist/execution.d.ts",
-      "import": "./dist/execution.js",
-      "default": "./dist/execution.js"
-    },
-    "./internal/isolate": {
-      "types": "./dist/isolate.d.ts",
-      "import": "./dist/isolate.js",
-      "default": "./dist/isolate.js"
-    },
     "./internal/bridge-loader": {
       "types": "./dist/bridge-loader.d.ts",
       "import": "./dist/bridge-loader.js",
@@ -50,20 +40,10 @@
       "import": "./dist/module-resolver.js",
       "default": "./dist/module-resolver.js"
     },
-    "./internal/execution-lifecycle": {
-      "types": "./dist/execution-lifecycle.d.ts",
-      "import": "./dist/execution-lifecycle.js",
-      "default": "./dist/execution-lifecycle.js"
-    },
-    "./internal/esm-compiler": {
-      "types": "./dist/esm-compiler.d.ts",
-      "import": "./dist/esm-compiler.js",
-      "default": "./dist/esm-compiler.js"
-    },
-    "./internal/bridge-setup": {
-      "types": "./dist/bridge-setup.d.ts",
-      "import": "./dist/bridge-setup.js",
-      "default": "./dist/bridge-setup.js"
+    "./internal/bridge-handlers": {
+      "types": "./dist/bridge-handlers.d.ts",
+      "import": "./dist/bridge-handlers.js",
+      "default": "./dist/bridge-handlers.js"
     },
     "./internal/driver": {
       "types": "./dist/driver.d.ts",

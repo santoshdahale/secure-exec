@@ -8,6 +8,7 @@ import {
 import type { NodeRuntimeOptions } from "../../src/browser-runtime.js";
 import { runNodeCryptoSuite } from "./node/crypto.js";
 import { runNodeNetworkSuite } from "./node/network.js";
+import { runNodePolyfillSuite } from "./node/polyfills.js";
 import {
 	runNodeSuite,
 	type NodeRuntimeTarget,
@@ -23,7 +24,7 @@ type DisposableRuntime = {
 };
 
 const RUNTIME_TARGETS: NodeRuntimeTarget[] = ["node", "browser"];
-const NODE_SUITES: NodeSharedSuite[] = [runNodeSuite, runNodeNetworkSuite, runNodeCryptoSuite];
+const NODE_SUITES: NodeSharedSuite[] = [runNodeSuite, runNodeNetworkSuite, runNodeCryptoSuite, runNodePolyfillSuite];
 function isNodeTargetAvailable(): boolean {
 	return typeof process !== "undefined" && Boolean(process.versions?.node);
 }

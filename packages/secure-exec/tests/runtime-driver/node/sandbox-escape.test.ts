@@ -184,7 +184,7 @@ describe("sandbox escape security", () => {
 
 		expect(result.code).toBe(0);
 		const results = JSON.parse(capture.stdout().trim());
-		// Proto writes within the sandbox stay in the sandbox (isolated-vm provides isolation)
+		// Proto writes within the sandbox stay in the sandbox (the V8 isolate provides isolation)
 		// The critical assertion is that Object.setPrototypeOf(Object.prototype, ...) throws
 		expect(results.protoReplaceBlocked).toBe(true);
 		// Sandbox process remains sandboxed regardless of proto manipulation

@@ -1,6 +1,7 @@
 import * as dns from "node:dns";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
+import * as tls from "node:tls";
 import type { AddressInfo } from "node:net";
 import * as http from "node:http";
 import * as https from "node:https";
@@ -39,9 +40,6 @@ export interface NodeDriverOptions {
 
 export interface NodeRuntimeDriverFactoryOptions {
 	createIsolate?(memoryLimit: number): unknown;
-	/** V8 runtime process to use for sessions.
-	 *  If omitted, uses the global shared process (current behavior). */
-	v8Runtime?: import("@secure-exec/v8").V8Runtime;
 }
 
 /** Thin VFS adapter that delegates directly to `node:fs/promises`. */
@@ -288,6 +286,14 @@ export function createDefaultNetworkAdapter(options?: {
 	const servers = new Map<number, HttpServer>();
 	// Track ports owned by sandbox HTTP servers for loopback SSRF exemption
 	const ownedServerPorts = new Set<number>(options?.initialExemptPorts);
+	// Track upgrade sockets for bidirectional WebSocket relay
+	const upgradeSockets = new Map<number, import("stream").Duplex>();
+	let nextUpgradeSocketId = 1;
+	let onUpgradeSocketData: ((socketId: number, dataBase64: string) => void) | null = null;
+	let onUpgradeSocketEnd: ((socketId: number) => void) | null = null;
+	// Track net sockets for TCP connections
+	const netSockets = new Map<number, net.Socket>();
+	let nextNetSocketId = 1;
 
 	return {
 		async httpServerListen(options) {
@@ -348,6 +354,49 @@ export function createDefaultNetworkAdapter(options?: {
 				}
 			});
 
+			// Handle HTTP upgrade requests (WebSocket, etc.)
+			server.on("upgrade", (req, socket, head) => {
+				if (!options.onUpgrade) {
+					socket.destroy();
+					return;
+				}
+				const socketId = nextUpgradeSocketId++;
+				upgradeSockets.set(socketId, socket);
+
+				const headers: Record<string, string> = {};
+				Object.entries(req.headers).forEach(([key, value]) => {
+					if (typeof value === "string") {
+						headers[key] = value;
+					} else if (Array.isArray(value)) {
+						headers[key] = value[0] ?? "";
+					}
+				});
+
+				// Forward data from real socket to sandbox
+				socket.on("data", (chunk) => {
+					if (options.onUpgradeSocketData) {
+						options.onUpgradeSocketData(socketId, chunk.toString("base64"));
+					}
+				});
+				socket.on("close", () => {
+					if (options.onUpgradeSocketEnd) {
+						options.onUpgradeSocketEnd(socketId);
+					}
+					upgradeSockets.delete(socketId);
+				});
+
+				options.onUpgrade(
+					{
+						method: req.method || "GET",
+						url: req.url || "/",
+						headers,
+						rawHeaders: req.rawHeaders || [],
+					},
+					head.toString("base64"),
+					socketId,
+				);
+			});
+
 			await new Promise<void>((resolve, reject) => {
 				const onListening = () => resolve();
 				const onError = (err: Error) => reject(err);
@@ -391,6 +440,102 @@ export function createDefaultNetworkAdapter(options?: {
 			});
 
 			servers.delete(serverId);
+		},
+
+		upgradeSocketWrite(socketId, dataBase64) {
+			const socket = upgradeSockets.get(socketId);
+			if (socket && !socket.destroyed) {
+				socket.write(Buffer.from(dataBase64, "base64"));
+			}
+		},
+
+		upgradeSocketEnd(socketId) {
+			const socket = upgradeSockets.get(socketId);
+			if (socket && !socket.destroyed) {
+				socket.end();
+			}
+		},
+
+		upgradeSocketDestroy(socketId) {
+			const socket = upgradeSockets.get(socketId);
+			if (socket) {
+				socket.destroy();
+				upgradeSockets.delete(socketId);
+			}
+		},
+
+		setUpgradeSocketCallbacks(callbacks) {
+			onUpgradeSocketData = callbacks.onData;
+			onUpgradeSocketEnd = callbacks.onEnd;
+		},
+
+		netSocketConnect(host, port, callbacks) {
+			const socketId = nextNetSocketId++;
+			const socket = net.connect({ host, port });
+			netSockets.set(socketId, socket);
+
+			socket.on("connect", () => callbacks.onConnect());
+			socket.on("data", (chunk: Buffer) =>
+				callbacks.onData(chunk.toString("base64")),
+			);
+			socket.on("end", () => callbacks.onEnd());
+			socket.on("error", (err: Error) => callbacks.onError(err.message));
+			socket.on("close", () => {
+				netSockets.delete(socketId);
+				callbacks.onClose();
+			});
+
+			return socketId;
+		},
+
+		netSocketWrite(socketId, dataBase64) {
+			const socket = netSockets.get(socketId);
+			if (socket && !socket.destroyed) {
+				socket.write(Buffer.from(dataBase64, "base64"));
+			}
+		},
+
+		netSocketEnd(socketId) {
+			const socket = netSockets.get(socketId);
+			if (socket && !socket.destroyed) {
+				socket.end();
+			}
+		},
+
+		netSocketDestroy(socketId) {
+			const socket = netSockets.get(socketId);
+			if (socket) {
+				socket.destroy();
+				netSockets.delete(socketId);
+			}
+		},
+
+		netSocketUpgradeTls(socketId, options, callbacks) {
+			const socket = netSockets.get(socketId);
+			if (!socket) throw new Error(`Socket ${socketId} not found for TLS upgrade`);
+
+			// Remove existing listeners before wrapping
+			socket.removeAllListeners();
+
+			const tlsSocket = tls.connect({
+				socket,
+				rejectUnauthorized: options.rejectUnauthorized ?? false,
+				servername: options.servername,
+			});
+
+			// Replace in map so write/end/destroy operate on the TLS socket
+			netSockets.set(socketId, tlsSocket as unknown as net.Socket);
+
+			tlsSocket.on("secureConnect", () => callbacks.onSecureConnect());
+			tlsSocket.on("data", (chunk: Buffer) =>
+				callbacks.onData(chunk.toString("base64")),
+			);
+			tlsSocket.on("end", () => callbacks.onEnd());
+			tlsSocket.on("error", (err: Error) => callbacks.onError(err.message));
+			tlsSocket.on("close", () => {
+				netSockets.delete(socketId);
+				callbacks.onClose();
+			});
 		},
 
 		async fetch(url, options) {
@@ -561,13 +706,30 @@ export function createDefaultNetworkAdapter(options?: {
 						if (typeof v === "string") headers[k] = v;
 						else if (Array.isArray(v)) headers[k] = v.join(", ");
 					});
-					socket.destroy();
+
+					// Keep socket alive for WebSocket data relay
+					const socketId = nextUpgradeSocketId++;
+					upgradeSockets.set(socketId, socket);
+
+					socket.on("data", (chunk) => {
+						if (onUpgradeSocketData) {
+							onUpgradeSocketData(socketId, chunk.toString("base64"));
+						}
+					});
+					socket.on("close", () => {
+						if (onUpgradeSocketEnd) {
+							onUpgradeSocketEnd(socketId);
+						}
+						upgradeSockets.delete(socketId);
+					});
+
 					resolve({
 						status: res.statusCode || 101,
 						statusText: res.statusMessage || "Switching Protocols",
 						headers,
-						body: head.toString(),
+						body: head.toString("base64"),
 						url,
+						upgradeSocketId: socketId,
 					});
 				});
 
@@ -620,7 +782,6 @@ export function createNodeRuntimeDriverFactory(
 			new NodeExecutionDriver({
 				...runtimeOptions,
 				createIsolate: options.createIsolate,
-				v8Runtime: options.v8Runtime,
 			}),
 	};
 }

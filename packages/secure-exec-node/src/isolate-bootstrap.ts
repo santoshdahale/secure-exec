@@ -17,8 +17,6 @@ import type { ResolutionCache } from "@secure-exec/core";
 
 export interface NodeExecutionDriverOptions extends RuntimeDriverOptions {
 	createIsolate?(memoryLimit: number): unknown;
-	/** V8 runtime process override. If omitted, uses the global shared process. */
-	v8Runtime?: import("@secure-exec/v8").V8Runtime;
 }
 
 export interface BudgetState {
@@ -50,20 +48,11 @@ export interface DriverDeps {
 	activeHttpServerIds: Set<number>;
 	activeChildProcesses: Map<number, SpawnedProcess>;
 	activeHostTimers: Set<ReturnType<typeof setTimeout>>;
+	moduleFormatCache: Map<string, "esm" | "cjs" | "json">;
+	packageTypeCache: Map<string, "module" | "commonjs" | null>;
 	resolutionCache: ResolutionCache;
 	/** Optional callback for PTY setRawMode — wired by kernel when PTY is attached. */
 	onPtySetRawMode?: (mode: boolean) => void;
-
-	// Legacy fields for backward compatibility with esm-compiler.ts and module-resolver.ts.
-	/* eslint-disable @typescript-eslint/no-explicit-any */
-	isolate: any;
-	esmModuleCache: Map<string, any>;
-	esmModuleReverseCache: Map<any, string>;
-	moduleFormatCache: Map<string, "esm" | "cjs" | "json">;
-	packageTypeCache: Map<string, "module" | "commonjs" | null>;
-	dynamicImportCache: Map<string, any>;
-	dynamicImportPending: Map<string, Promise<any>>;
-	/* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
 // Constants

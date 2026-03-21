@@ -57,6 +57,12 @@ Priority order is:
   - Reads >1MB silently truncate; should return EIO.
   - Files: `packages/runtime/wasmvm/src/syscall-rpc.ts`
 
+- [ ] Run Ralph agent with OOM protection to prevent host machine lockup.
+  - Sandbox tests (especially runtime-driver) can consume unbounded host memory when isolation is broken (e.g., node:vm shares host heap).
+  - Use `systemd-run --user --scope -p MemoryMax=8G -p OOMScoreAdjust=900` to cap memory and ensure OOM killer targets the agent first.
+  - Alternative: `ulimit -v 8388608` for virtual memory cap, or `echo 1000 > /proc/self/oom_score_adj` for OOM priority only.
+  - Consider adding this to `scripts/ralph/ralph.sh` as a default wrapper.
+
 ## Priority 1: Compatibility and API Coverage
 
 - [ ] Fix `v8.serialize` and `v8.deserialize` to use V8 structured serialization semantics.

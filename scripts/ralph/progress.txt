@@ -1,0 +1,29 @@
+## Codebase Patterns
+- The Rust V8 runtime binary has a fixed set of native bridge globals; newer handlers must be dispatched through `_loadPolyfill` with a `__bd:` prefix
+- Bridge code runs in a V8 snapshot phase where bridge calls are muted; console/require setup must go in `postRestoreScript`
+- The V8 runtime doesn't provide SharedArrayBuffer, TextEncoder, URL, etc. — polyfills must be prepended to bridgeCode
+- ivm.Reference methods (applySync, applySyncPromise, derefInto) must be shimmed on plain bridge functions for compatibility with @secure-exec/core bridge code
+- `NodeExecutionDriver` creates a shared `V8Runtime` (Rust process) lazily, reusing it across all instances
+
+# Ralph Progress Log
+Started: Sat Mar 21 12:56:24 AM PDT 2026
+---
+
+## 2026-03-21 01:55 PDT - US-014
+- Migrated from isolated-vm to @secure-exec/v8 (Rust-based V8 runtime)
+- Rewrote NodeExecutionDriver to use V8Session API
+- Ported all bridge handlers to plain functions in bridge-handlers.ts
+- Added V8 polyfills for missing Web APIs
+- Added bridge dispatch mechanism for handlers not in the V8 binary
+- Added ivm.Reference compatibility shim
+- Deleted: isolate.ts, execution.ts, execution-lifecycle.ts, esm-compiler.ts
+- Cleaned: bridge-setup.ts, isolate-bootstrap.ts, index.ts, package.json
+- Updated all "isolated-vm" comment references
+- Files changed: 31 files, +1761/-3188 lines
+- **Learnings for future iterations:**
+  - The Rust V8 binary (`@secure-exec/v8-linux-x64-gnu`) has a hardcoded list of bridge globals. New bridge handlers must be dispatched through existing globals (like `_loadPolyfill`) using a serialization protocol
+  - V8 snapshot phase (bridgeCode) mutes all bridge calls — anything that needs bridge communication must go in postRestoreScript
+  - The bridge IIFE (679KB) uses SharedArrayBuffer, TextEncoder, URL, etc. that bare V8 doesn't provide — must polyfill before the IIFE runs
+  - The @secure-exec/core bridge code uses ivm.Reference patterns (applySync, applySyncPromise) — these need shimming on plain functions
+  - The Rust V8 runtime writes console.log to stdout via IPC Log messages, not through bridge handlers — console setup code must override this
+---

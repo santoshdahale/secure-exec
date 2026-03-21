@@ -3,7 +3,7 @@ import { exposeCustomGlobal } from "../shared/global-exposure.js";
 /**
  * Active Handles: Mechanism to keep the sandbox alive for async operations.
  *
- * isolated-vm doesn't have an event loop, so async callbacks (like child process
+ * The V8 isolate doesn't have an event loop, so async callbacks (like child process
  * events) would never fire because the sandbox exits immediately after synchronous
  * code finishes. This module tracks active handles and provides a promise that
  * resolves when all handles complete.

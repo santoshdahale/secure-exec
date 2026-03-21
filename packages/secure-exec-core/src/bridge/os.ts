@@ -1,4 +1,4 @@
-// OS module polyfill for isolated-vm
+// OS module polyfill for the sandbox
 // Provides Node.js os module emulation for sandbox compatibility
 
 import type * as nodeOs from "os";

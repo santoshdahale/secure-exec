@@ -508,10 +508,12 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 			const plaintext = 'hello world, this is a secret message!';
 
 			const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-			const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+			const encUp = cipher.update(plaintext, 'utf8');
+			const encrypted = Buffer.concat([encUp, cipher.final()]);
 
 			const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-			const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+			const decUp = decipher.update(encrypted);
+			const decrypted = Buffer.concat([decUp, decipher.final()]).toString('utf8');
 
 			module.exports = { decrypted, isBuffer: Buffer.isBuffer(encrypted) };
 		`);
@@ -531,10 +533,12 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 			const plaintext = 'AES-128 test data';
 
 			const cipher = crypto.createCipheriv('aes-128-cbc', key, iv);
-			const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]).toString('hex');
+			const encUp = cipher.update(plaintext, 'utf8');
+			const encrypted = Buffer.concat([encUp, cipher.final()]).toString('hex');
 
 			const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
-			const decrypted = Buffer.concat([decipher.update(encrypted, 'hex'), decipher.final()]).toString('utf8');
+			const decUp = decipher.update(encrypted, 'hex');
+			const decrypted = Buffer.concat([decUp, decipher.final()]).toString('utf8');
 
 			module.exports = { decrypted };
 		`);
@@ -552,12 +556,14 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 			const plaintext = 'authenticated encryption test';
 
 			const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-			const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+			const encUp = cipher.update(plaintext, 'utf8');
+			const encrypted = Buffer.concat([encUp, cipher.final()]);
 			const authTag = cipher.getAuthTag();
 
 			const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
 			decipher.setAuthTag(authTag);
-			const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+			const decUp = decipher.update(encrypted);
+			const decrypted = Buffer.concat([decUp, decipher.final()]).toString('utf8');
 
 			module.exports = {
 				decrypted,
@@ -581,7 +587,8 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 			const iv = Buffer.alloc(12, 8);
 
 			const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-			const encrypted = Buffer.concat([cipher.update('secret data', 'utf8'), cipher.final()]);
+			const encUp = cipher.update('secret data', 'utf8');
+			const encrypted = Buffer.concat([encUp, cipher.final()]);
 			cipher.getAuthTag(); // get real tag but don't use it
 
 			const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
@@ -608,12 +615,14 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 			const plaintext = 'AES-128-GCM test';
 
 			const cipher = crypto.createCipheriv('aes-128-gcm', key, iv);
-			const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+			const encUp = cipher.update(plaintext, 'utf8');
+			const encrypted = Buffer.concat([encUp, cipher.final()]);
 			const authTag = cipher.getAuthTag();
 
 			const decipher = crypto.createDecipheriv('aes-128-gcm', key, iv);
 			decipher.setAuthTag(authTag);
-			const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+			const decUp = decipher.update(encrypted);
+			const decrypted = Buffer.concat([decUp, decipher.final()]).toString('utf8');
 
 			module.exports = { decrypted };
 		`);
@@ -1225,5 +1234,115 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 		`);
 		expect(result.code).toBe(0);
 		expect((result.exports as any).threw).toBe(true);
+	});
+
+	it("subtle.deriveBits PBKDF2 produces correct length output", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const password = new TextEncoder().encode('password');
+				const key = await crypto.subtle.importKey('raw', password, 'PBKDF2', false, ['deriveBits']);
+				const salt = crypto.randomBytes(16);
+				const bits = await crypto.subtle.deriveBits(
+					{ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+					key,
+					256
+				);
+				module.exports = {
+					isArrayBuffer: bits instanceof ArrayBuffer,
+					byteLength: bits.byteLength,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.isArrayBuffer).toBe(true);
+		expect(exports.byteLength).toBe(32);
+	});
+
+	it("subtle.deriveBits PBKDF2 is deterministic with same salt", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const password = new TextEncoder().encode('test-password');
+				const key = await crypto.subtle.importKey('raw', password, 'PBKDF2', false, ['deriveBits']);
+				const salt = Buffer.from('fixed-salt-value');
+				const bits1 = await crypto.subtle.deriveBits(
+					{ name: 'PBKDF2', salt, iterations: 1000, hash: 'SHA-256' },
+					key, 256
+				);
+				const bits2 = await crypto.subtle.deriveBits(
+					{ name: 'PBKDF2', salt, iterations: 1000, hash: 'SHA-256' },
+					key, 256
+				);
+				module.exports = {
+					match: Buffer.from(bits1).equals(Buffer.from(bits2)),
+					hex: Buffer.from(bits1).toString('hex'),
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.match).toBe(true);
+		expect(exports.hex.length).toBe(64);
+	});
+
+	it("subtle.deriveBits HKDF produces correct length output", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const ikm = crypto.randomBytes(32);
+				const key = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+				const salt = crypto.randomBytes(16);
+				const info = new TextEncoder().encode('application-info');
+				const bits = await crypto.subtle.deriveBits(
+					{ name: 'HKDF', salt, info, hash: 'SHA-256' },
+					key,
+					256
+				);
+				module.exports = {
+					isArrayBuffer: bits instanceof ArrayBuffer,
+					byteLength: bits.byteLength,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.isArrayBuffer).toBe(true);
+		expect(exports.byteLength).toBe(32);
+	});
+
+	it("subtle.deriveKey PBKDF2 produces usable AES key", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			(async () => {
+				const crypto = require('crypto');
+				const password = new TextEncoder().encode('my-password');
+				const baseKey = await crypto.subtle.importKey('raw', password, 'PBKDF2', false, ['deriveKey']);
+				const salt = crypto.randomBytes(16);
+				const aesKey = await crypto.subtle.deriveKey(
+					{ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+					baseKey,
+					{ name: 'AES-GCM', length: 256 },
+					true,
+					['encrypt', 'decrypt']
+				);
+				const iv = crypto.randomBytes(12);
+				const plaintext = new TextEncoder().encode('secret message');
+				const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext);
+				const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, encrypted);
+				module.exports = {
+					match: new TextDecoder().decode(decrypted) === 'secret message',
+					keyType: aesKey.type,
+				};
+			})();
+		`);
+		expect(result.code).toBe(0);
+		const exports = result.exports as any;
+		expect(exports.match).toBe(true);
+		expect(exports.keyType).toBe("secret");
 	});
 }

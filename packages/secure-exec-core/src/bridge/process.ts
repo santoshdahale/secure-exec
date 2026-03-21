@@ -1,4 +1,4 @@
-// Process module polyfill for isolated-vm
+// Process module polyfill for the sandbox
 // Provides Node.js process object and global polyfills for sandbox compatibility
 
 import type * as nodeProcess from "process";
@@ -113,8 +113,8 @@ function getNowMs(): number {
     : Date.now();
 }
 
-// Start time for uptime calculation (mutable for snapshot restore)
-let _processStartTime = getNowMs();
+// Start time for uptime calculation
+const _processStartTime = getNowMs();
 
 const BUFFER_MAX_LENGTH =
   typeof (BufferPolyfill as unknown as { kMaxLength?: unknown }).kMaxLength ===
@@ -152,22 +152,29 @@ if (
   };
 }
 
+// Shim encoding-specific slice/write methods on Buffer.prototype.
+// Node.js exposes these via internal V8 bindings (e.g. utf8Slice, latin1Write).
+// Packages like ssh2 call them directly for performance.
+const bufferProto = BufferPolyfill.prototype as Record<string, unknown>;
+if (typeof bufferProto.utf8Slice !== "function") {
+  const encodings = ["utf8", "latin1", "ascii", "hex", "base64", "ucs2", "utf16le"];
+  for (const enc of encodings) {
+    if (typeof bufferProto[enc + "Slice"] !== "function") {
+      bufferProto[enc + "Slice"] = function (this: InstanceType<typeof BufferPolyfill>, start?: number, end?: number) {
+        return this.toString(enc as BufferEncoding, start, end);
+      };
+    }
+    if (typeof bufferProto[enc + "Write"] !== "function") {
+      bufferProto[enc + "Write"] = function (this: InstanceType<typeof BufferPolyfill>, string: string, offset?: number, length?: number) {
+        return this.write(string, offset ?? 0, length ?? (this.length - (offset ?? 0)), enc as BufferEncoding);
+      };
+    }
+  }
+}
+
 // Exit code tracking
 let _exitCode = 0;
 let _exited = false;
-
-// Expose reset function for snapshot restore — resets mutable state
-// captured in this closure so each restored context starts fresh.
-(globalThis as Record<string, unknown>).__runtimeResetProcessState =
-  function () {
-    _processStartTime =
-      typeof performance !== "undefined" && performance.now
-        ? performance.now()
-        : Date.now();
-    _exitCode = 0;
-    _exited = false;
-    delete (globalThis as Record<string, unknown>).__runtimeResetProcessState;
-  };
 
 /**
  * Thrown by `process.exit()` to unwind the sandbox call stack. The host
@@ -229,7 +236,7 @@ function _addListener(
       const warning = `MaxListenersExceededWarning: Possible EventEmitter memory leak detected. ${total} ${event} listeners added to [process]. MaxListeners is ${_processMaxListeners}. Use emitter.setMaxListeners() to increase limit`;
       // Use console.error to emit warning without recursion risk
       if (typeof _error !== "undefined") {
-        _error(warning);
+        _error.applySync(undefined, [warning]);
       }
     }
   }
@@ -298,7 +305,7 @@ const _stderrIsTTY = (typeof _processConfig !== "undefined" && _processConfig.st
 const _stdout: StdioWriteStream = {
   write(data: unknown): boolean {
     if (typeof _log !== "undefined") {
-      _log(String(data).replace(/\n$/, ""));
+      _log.applySync(undefined, [String(data).replace(/\n$/, "")]);
     }
     return true;
   },
@@ -324,7 +331,7 @@ const _stdout: StdioWriteStream = {
 const _stderr: StdioWriteStream = {
   write(data: unknown): boolean {
     if (typeof _error !== "undefined") {
-      _error(String(data).replace(/\n$/, ""));
+      _error.applySync(undefined, [String(data).replace(/\n$/, "")]);
     }
     return true;
   },
@@ -498,7 +505,7 @@ const _stdin: StdinStream = {
       throw new Error("setRawMode is not supported when stdin is not a TTY");
     }
     if (typeof _ptySetRawMode !== "undefined") {
-      _ptySetRawMode(mode);
+      _ptySetRawMode.applySync(undefined, [mode]);
     }
     return this;
   },
@@ -625,9 +632,9 @@ const process: Record<string, unknown> & {
 
   chdir(dir: string): void {
     // Validate directory exists in VFS before setting cwd
-    let stat: { isDirectory: boolean };
+    let statJson: string;
     try {
-      stat = _fs.stat(dir);
+      statJson = _fs.stat.applySyncPromise(undefined, [dir]);
     } catch {
       const err = new Error(`ENOENT: no such file or directory, chdir '${dir}'`) as Error & { code: string; errno: number; syscall: string; path: string };
       err.code = "ENOENT";
@@ -636,7 +643,8 @@ const process: Record<string, unknown> & {
       err.path = dir;
       throw err;
     }
-    if (!stat.isDirectory) {
+    const parsed = JSON.parse(statJson);
+    if (!parsed.isDirectory) {
       const err = new Error(`ENOTDIR: not a directory, chdir '${dir}'`) as Error & { code: string; errno: number; syscall: string; path: string };
       err.code = "ENOTDIR";
       err.errno = -20;
@@ -1018,7 +1026,11 @@ export function setTimeout(
 
   // Use host timer for actual delays if available and delay > 0
   if (typeof _scheduleTimer !== "undefined" && actualDelay > 0) {
-    _scheduleTimer(actualDelay)
+    // _scheduleTimer.apply() returns a Promise that resolves after the delay
+    // Using { result: { promise: true } } tells the V8 runtime to wait for the
+    // host Promise to resolve before resolving the apply() Promise
+    _scheduleTimer
+      .apply(undefined, [actualDelay], { result: { promise: true } })
       .then(() => {
         if (_timers.has(id)) {
           _timers.delete(id);
@@ -1073,7 +1085,8 @@ export function setInterval(
 
     if (typeof _scheduleTimer !== "undefined" && actualDelay > 0) {
       // Use host timer for actual delays
-      _scheduleTimer(actualDelay)
+      _scheduleTimer
+        .apply(undefined, [actualDelay], { result: { promise: true } })
         .then(() => {
           if (_intervals.has(id)) {
             try {
@@ -1136,26 +1149,6 @@ export { TextEncoder, TextDecoder };
 // Buffer - use buffer package polyfill
 export const Buffer = BufferPolyfill;
 
-// Patch internal V8 Buffer slice/write methods used by native-protocol libraries
-// (ssh2, msgpack, protobuf, etc.). The polyfill supports these encodings through
-// toString()/write() but doesn't expose the fast-path internal methods.
-const bp = BufferPolyfill.prototype as Record<string, unknown>;
-const sliceEncodings = ["utf8", "ascii", "latin1", "binary", "hex", "base64", "ucs2", "utf16le"] as const;
-for (const enc of sliceEncodings) {
-  const sliceKey = `${enc}Slice`;
-  if (typeof bp[sliceKey] !== "function") {
-    bp[sliceKey] = function(this: InstanceType<typeof BufferPolyfill>, start: number, end: number): string {
-      return this.toString(enc, start, end);
-    };
-  }
-  const writeKey = `${enc}Write`;
-  if (typeof bp[writeKey] !== "function") {
-    bp[writeKey] = function(this: InstanceType<typeof BufferPolyfill>, str: string, offset: number, length: number): number {
-      return this.write(str, offset, length, enc);
-    };
-  }
-}
-
 function throwUnsupportedCryptoApi(api: "getRandomValues" | "randomUUID"): never {
   throw new Error(`crypto.${api} is not supported in sandbox`);
 }
@@ -1182,7 +1175,8 @@ export const cryptoPolyfill = {
       array.byteLength
     );
     try {
-      const hostBytes = _cryptoRandomFill(bytes.byteLength);
+      const base64 = _cryptoRandomFill.applySync(undefined, [bytes.byteLength]);
+      const hostBytes = BufferPolyfill.from(base64, "base64");
       if (hostBytes.byteLength !== bytes.byteLength) {
         throw new Error("invalid host entropy size");
       }
@@ -1198,7 +1192,7 @@ export const cryptoPolyfill = {
       throwUnsupportedCryptoApi("randomUUID");
     }
     try {
-      const uuid = _cryptoRandomUUID();
+      const uuid = _cryptoRandomUUID.applySync(undefined, []);
       if (typeof uuid !== "string") {
         throw new Error("invalid host uuid");
       }

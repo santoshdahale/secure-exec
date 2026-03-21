@@ -94,6 +94,21 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Bridge-owned dns module handle for require resolution.",
 	},
 	{
+		name: "_netModule",
+		classification: "hardened",
+		rationale: "Bridge-owned net module handle for require resolution.",
+	},
+	{
+		name: "_tlsModule",
+		classification: "hardened",
+		rationale: "Bridge-owned tls module handle for require resolution.",
+	},
+	{
+		name: "_netSocketDispatch",
+		classification: "hardened",
+		rationale: "Host-to-sandbox net socket event dispatch entrypoint.",
+	},
+	{
 		name: "_httpServerDispatch",
 		classification: "hardened",
 		rationale: "Host-to-sandbox HTTP server dispatch entrypoint.",
@@ -402,6 +417,11 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		name: "Blob",
 		classification: "hardened",
 		rationale: "Blob API global stub — must not be replaceable by sandbox code.",
+	},
+	{
+		name: "FormData",
+		classification: "hardened",
+		rationale: "FormData API global stub — must not be replaceable by sandbox code.",
 	},
 ];
 

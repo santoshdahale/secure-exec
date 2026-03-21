@@ -228,6 +228,20 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 		return path.join(this.hostNodeModulesRoot, ...relative.split("/"));
 	}
 
+	/** Translate a sandbox path to the corresponding host path (for sync module resolution). */
+	toHostPath(sandboxPath: string): string | null {
+		return this.overlayHostPathFor(normalizeOverlayPath(sandboxPath));
+	}
+
+	/** Translate a host path back to the sandbox path (reverse of toHostPath). */
+	toSandboxPath(hostPath: string): string {
+		if (this.hostNodeModulesRoot && isWithinPath(hostPath, this.hostNodeModulesRoot)) {
+			const relative = path.relative(this.hostNodeModulesRoot, hostPath);
+			return path.posix.join(SANDBOX_NODE_MODULES_ROOT, ...relative.split(path.sep));
+		}
+		return hostPath;
+	}
+
 	private async resolveOverlayHostPath(
 		virtualPath: string,
 		syscall: string,

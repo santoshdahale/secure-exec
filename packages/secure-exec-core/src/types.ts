@@ -239,8 +239,7 @@ export interface NetworkAdapter {
 		onData: (socketId: number, dataBase64: string) => void;
 		onEnd: (socketId: number) => void;
 	}): void;
-
-	/** Create a TCP socket and connect to host:port. Returns a socketId. */
+	/** Create a TCP socket connection on the host. Returns socketId. */
 	netSocketConnect?(
 		host: string,
 		port: number,
@@ -249,25 +248,25 @@ export interface NetworkAdapter {
 			onData: (dataBase64: string) => void;
 			onEnd: () => void;
 			onError: (message: string) => void;
-			onClose: (hadError: boolean) => void;
+			onClose: () => void;
 		},
 	): number;
-	/** Write data to a TCP socket. */
+	/** Write data to a net socket. */
 	netSocketWrite?(socketId: number, dataBase64: string): void;
-	/** End a TCP socket (half-close). */
+	/** Half-close a net socket (send FIN). */
 	netSocketEnd?(socketId: number): void;
-	/** Destroy a TCP socket. */
+	/** Forcefully destroy a net socket. */
 	netSocketDestroy?(socketId: number): void;
-	/** Upgrade an existing TCP socket to TLS. */
+	/** Upgrade a net socket to TLS. Re-wires events for the TLS layer. */
 	netSocketUpgradeTls?(
 		socketId: number,
-		optionsJson: string,
+		options: { rejectUnauthorized?: boolean; servername?: string },
 		callbacks: {
+			onSecureConnect: () => void;
 			onData: (dataBase64: string) => void;
 			onEnd: () => void;
 			onError: (message: string) => void;
-			onClose: (hadError: boolean) => void;
-			onSecureConnect: () => void;
+			onClose: () => void;
 		},
 	): void;
 }
@@ -305,7 +304,6 @@ export interface NetworkAccessRequest {
 	url?: string;
 	method?: string;
 	hostname?: string;
-	port?: number;
 }
 
 export interface ChildProcessAccessRequest {

@@ -137,7 +137,7 @@ function revivePermissions(serialized?: SerializedPermissions): Permissions | un
 
 /**
  * Wrap a sync function in the bridge calling convention (`applySync`) so
- * bridge code can call it the same way it calls isolated-vm References.
+ * bridge code can call it the same way it calls bridge References.
  */
 function makeApplySync<TArgs extends unknown[], TResult>(
 	fn: (...args: TArgs) => TResult,

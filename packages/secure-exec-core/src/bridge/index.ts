@@ -2,7 +2,7 @@
 // This file is compiled to a single JS bundle that gets injected into the isolate
 //
 // Each module provides polyfills for Node.js built-in modules that need to
-// communicate with the host environment via isolated-vm bridge functions.
+// communicate with the host environment via bridge functions.
 
 // IMPORTANT: Import polyfills FIRST before any other modules!
 // Some packages (like whatwg-url) use TextEncoder/TextDecoder at module load time.

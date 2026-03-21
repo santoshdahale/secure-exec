@@ -1,7 +1,6 @@
-// Re-exported from @secure-exec/node — canonical source is packages/secure-exec-node/src/bridge-setup.ts
+// Re-exported from @secure-exec/node
 export {
 	emitConsoleEvent,
-	setupConsole,
-	setupRequire,
-	setupESMGlobals,
-} from "@secure-exec/node/internal/bridge-setup";
+	stripDangerousEnv,
+	createProcessConfigForExecution,
+} from "@secure-exec/node";

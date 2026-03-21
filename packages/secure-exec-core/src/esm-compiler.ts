@@ -1,7 +1,7 @@
 /**
  * ESM wrapper generator for built-in modules inside the isolate.
  *
- * isolated-vm's ESM `import` can only resolve modules we explicitly provide.
+ * The V8 isolate's ESM `import` can only resolve modules we explicitly provide.
  * For Node built-ins (fs, path, etc.) we generate thin ESM wrappers that
  * re-export the bridge-provided globalThis objects as proper ESM modules
  * with both default and named exports.

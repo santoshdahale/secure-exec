@@ -107,9 +107,9 @@ export {
 
 // Bridge contract.
 export type {
-	BatchResolveModulesBridgeRef,
-	BatchResolveModulesRequest,
-	BatchResolveModulesResult,
+	BridgeApplyRef,
+	BridgeApplySyncPromiseRef,
+	BridgeApplySyncRef,
 	BridgeGlobalKey,
 	ChildProcessKillBridgeRef,
 	ChildProcessSpawnStartBridgeRef,

@@ -10,7 +10,6 @@ import {
 	NodeFileSystem,
 	NodeRuntime,
 } from "../../../src/index.js";
-import type { StdioEvent } from "../../../src/index.js";
 import { createTestNodeRuntime } from "../../test-utils.js";
 
 const execFileAsync = promisify(execFile);
@@ -24,15 +23,6 @@ const allowFsNetworkEnv = {
 	...allowAllEnv,
 };
 
-function createCapture() {
-	const events: StdioEvent[] = [];
-	return {
-		events,
-		onStdio: (event: StdioEvent) => events.push(event),
-		stdout: () => events.filter((e) => e.channel === "stdout").map((e) => e.message),
-	};
-}
-
 describe("hono fetch external invocation", () => {
 	let proc: NodeRuntime | undefined;
 
@@ -42,120 +32,84 @@ describe("hono fetch external invocation", () => {
 	});
 
 	it(
-		"exercises Request/Response fetch routing inside sandbox",
+		"calls router fetch directly from host-triggered executions multiple times",
 		async () => {
-			const capture = createCapture();
-			proc = createTestNodeRuntime({
-				filesystem: new NodeFileSystem(),
-				permissions: allowFsNetworkEnv,
-				processConfig: { cwd: FIXTURE_ROOT },
-				onStdio: capture.onStdio,
-			});
-
-			// Verify Request/Response globals are available and functional.
-			const result = await proc.exec(`
-				var req = new Request("http://localhost/hello", { method: "GET" });
-				console.log(req.url);
-				console.log(req.method);
-
-				var res = new Response("hello from sandboxed router", { status: 200 });
-				console.log(res.status);
-
-				var hdrs = new Headers({ "x-test": "value" });
-				console.log(hdrs.get("x-test"));
-			`);
-
-			expect(result.code).toBe(0);
-			expect(capture.stdout()).toEqual([
-				"http://localhost/hello",
-				"GET",
-				"200",
-				"value",
-			]);
-		},
-		TEST_TIMEOUT_MS,
-	);
-
-	// The original test required calling routerFetchEnvelope() from the
-	// hono fixture, which uses require("hono"). CJS require() is not
-	// available in the V8 runtime's exec() mode — this is a pre-existing
-	// limitation. This test will auto-enable when CJS support is fixed.
-	it(
-		"calls hono router fetch from sandbox with npm dependency",
-		async () => {
-			// Probe whether require() works in exec() mode
-			const probe = createTestNodeRuntime({
-				filesystem: new NodeFileSystem(),
-				permissions: allowFsNetworkEnv,
-			});
-			let hasRequire: boolean;
-			try {
-				const check = await probe.exec("require('path'); console.log('ok')");
-				hasRequire = check.code === 0 && !check.errorMessage;
-			} catch {
-				hasRequire = false;
-			} finally {
-				probe.dispose();
-			}
-
-			if (!hasRequire) {
-				// CJS require() unavailable in V8 sandbox exec() mode.
-				// This test will auto-enable when CJS support is fixed.
-				return;
-			}
-
 			await ensureFixtureDependencies();
-
-			const capture = createCapture();
 			proc = createTestNodeRuntime({
 				filesystem: new NodeFileSystem(),
 				permissions: allowFsNetworkEnv,
-				processConfig: { cwd: FIXTURE_ROOT },
-				onStdio: capture.onStdio,
+				processConfig: {
+					cwd: FIXTURE_ROOT,
+				},
 			});
 
-			const sandboxCode = `
-var routerFetchEnvelope = require("./src/index").routerFetchEnvelope;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const unsafeProc = proc as any;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			let context: any;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			let routerFetchRef: any;
+			try {
+				context = await unsafeProc.__unsafeCreateContext({
+					cwd: FIXTURE_ROOT,
+					filePath: path.join(FIXTURE_ROOT, "src/__unsafe-bootstrap.js"),
+				});
+				const bootstrap = await unsafeProc.__unsafeIsoalte.compileScript(
+					`
+            const { routerFetchEnvelope } = require('./index.js');
+            globalThis.__routerFetchEnvelope = routerFetchEnvelope;
+          `,
+					{
+						filename: path.join(FIXTURE_ROOT, "src/__unsafe-bootstrap.js"),
+					},
+				);
+				await bootstrap.run(context);
 
-routerFetchEnvelope({ method: "GET", url: "http://localhost/hello", headers: {} })
-	.then(function(r1) {
-		console.log(JSON.stringify(r1));
-		return routerFetchEnvelope({ method: "GET", url: "http://localhost/increment", headers: {} });
-	})
-	.then(function(r2) {
-		console.log(JSON.stringify(r2));
-		return routerFetchEnvelope({ method: "GET", url: "http://localhost/increment", headers: {} });
-	})
-	.then(function(r3) {
-		console.log(JSON.stringify(r3));
-	})
-	.catch(function(err) { console.error(err.message); process.exit(1); });
-`;
+				routerFetchRef = await context.global.get("__routerFetchEnvelope", {
+					reference: true,
+				});
 
-			const result = await proc.exec(sandboxCode, {
-				filePath: path.join(FIXTURE_ROOT, "__test_entry__.js"),
-				cwd: FIXTURE_ROOT,
-				env: {},
-			});
+				const first = await invokeRouterFetchRef(routerFetchRef, {
+					url: "http://sandbox.local/increment",
+					method: "GET",
+					headers: {},
+				});
+				const second = await invokeRouterFetchRef(routerFetchRef, {
+					url: "http://sandbox.local/increment",
+					method: "GET",
+					headers: {},
+				});
+				const third = await invokeRouterFetchRef(routerFetchRef, {
+					url: "http://sandbox.local/increment",
+					method: "GET",
+					headers: {},
+				});
+				const hello = await invokeRouterFetchRef(routerFetchRef, {
+					url: "http://sandbox.local/hello",
+					method: "GET",
+					headers: {},
+				});
 
-			expect(result.code).toBe(0);
-
-			const messages = capture.stdout();
-			expect(messages.length).toBe(3);
-
-			const r1 = JSON.parse(messages[0]);
-			expect(r1.status).toBe(200);
-			expect(Buffer.from(r1.bodyBase64, "base64").toString("utf8")).toBe(
-				"hello from sandboxed hono",
-			);
-
-			const r2 = JSON.parse(messages[1]);
-			expect(r2.status).toBe(200);
-			expect(Buffer.from(r2.bodyBase64, "base64").toString("utf8")).toBe("1");
-
-			const r3 = JSON.parse(messages[2]);
-			expect(r3.status).toBe(200);
-			expect(Buffer.from(r3.bodyBase64, "base64").toString("utf8")).toBe("2");
+				expect(first.status).toBe(200);
+				expect(second.status).toBe(200);
+				expect(third.status).toBe(200);
+				expect(Buffer.from(first.bodyBase64, "base64").toString("utf8")).toBe(
+					"1",
+				);
+				expect(Buffer.from(second.bodyBase64, "base64").toString("utf8")).toBe(
+					"2",
+				);
+				expect(Buffer.from(third.bodyBase64, "base64").toString("utf8")).toBe(
+					"3",
+				);
+				expect(hello.status).toBe(200);
+				expect(Buffer.from(hello.bodyBase64, "base64").toString("utf8")).toBe(
+					"hello from sandboxed hono",
+				);
+			} finally {
+				routerFetchRef?.release();
+				context?.release();
+			}
 		},
 		TEST_TIMEOUT_MS,
 	);
@@ -178,4 +132,28 @@ async function ensureFixtureDependencies(): Promise<void> {
 			maxBuffer: 10 * 1024 * 1024,
 		},
 	);
+}
+
+async function invokeRouterFetchRef(
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	routerFetchRef: any,
+	input: {
+		url: string;
+		method: string;
+		headers: Record<string, string>;
+	},
+): Promise<{ status: number; headers: Record<string, string>; bodyBase64: string }> {
+	return (await routerFetchRef.apply(undefined, [input], {
+		arguments: {
+			copy: true,
+		},
+		result: {
+			copy: true,
+			promise: true,
+		},
+	})) as {
+		status: number;
+		headers: Record<string, string>;
+		bodyBase64: string;
+	};
 }

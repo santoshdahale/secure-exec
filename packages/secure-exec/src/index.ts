@@ -43,7 +43,6 @@ export {
 	createDefaultNetworkAdapter,
 	createNodeDriver,
 	createNodeRuntimeDriverFactory,
-	disposeSharedV8Runtime,
 	NodeExecutionDriver,
 	NodeFileSystem,
 } from "@secure-exec/node";
