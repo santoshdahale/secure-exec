@@ -512,7 +512,7 @@ fn session_thread(
                         };
 
                         // Run event loop if there are pending async promises
-                        let terminated = if pending.len() > 0 {
+                        let mut terminated = if pending.len() > 0 {
                             let scope = &mut v8::HandleScope::new(iso);
                             let ctx = v8::Local::new(scope, &exec_context);
                             let scope = &mut v8::ContextScope::new(scope, ctx);
@@ -526,6 +526,39 @@ fn session_thread(
                         } else {
                             false
                         };
+
+                        // Final microtask drain: after the event loop exits (all bridge
+                        // promises resolved), there may be pending V8 microtasks from
+                        // nested async generator yield chains (e.g. Anthropic SDK's SSE
+                        // parser). These chains don't create bridge calls so pending.len()
+                        // reaches 0 while V8 still has queued PromiseReactionJobs.
+                        // Run repeated checkpoints until no new pending bridge calls are
+                        // created and all microtasks are fully drained.
+                        if !terminated {
+                            loop {
+                                let scope = &mut v8::HandleScope::new(iso);
+                                let ctx = v8::Local::new(scope, &exec_context);
+                                let scope = &mut v8::ContextScope::new(scope, ctx);
+                                scope.perform_microtask_checkpoint();
+
+                                // If microtask processing created new async bridge calls,
+                                // run the event loop again to handle them
+                                if pending.len() > 0 {
+                                    if !run_event_loop(
+                                        scope,
+                                        &rx,
+                                        &pending,
+                                        maybe_abort_rx.as_ref(),
+                                        Some(&deferred_queue),
+                                    ) {
+                                        terminated = true;
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
 
                         // Check if timeout fired
                         let timed_out = timeout_guard.as_ref().is_some_and(|g| g.timed_out());

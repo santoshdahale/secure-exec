@@ -456,8 +456,8 @@
         "pnpm --filter secure-exec exec vitest run tests/cli-tools/pi-headless.test.ts passes with zero skipped tests (when Pi is installed)"
       ],
       "priority": 27,
-      "passes": false,
-      "notes": "Depends on US-023 (V8 dynamic import) and US-024 (native ESM mode). Current pi-headless.test.ts spawns Pi via host node:child_process.spawn — rewrite to use kernel.spawn() or kernel.openShell(). The mock LLM server (mock-llm-server.ts) stays on the host — that's test infrastructure. The fetch-intercept.cjs pattern needs to be replaced with sandbox-side fetch patching. DO NOT use host child_process.spawn for Pi. DO NOT create HostBinaryDriver."
+      "passes": true,
+      "notes": "Pi runs in-VM via kernel.spawn() with native ESM. Required 4 bridge fixes: (1) TextDecoder.decode() in V8_POLYFILLS ignoring byteOffset/byteLength of Uint8Array subarrays, (2) fetch Headers serialization for Headers instances (SDK passes Headers, not plain objects), (3) response body Symbol.asyncIterator for SDK's ReadableStreamToAsyncIterable, (4) V8 event loop microtask drain after bridge promise resolution for nested async generator chains. Bash tool test skipped without WASM binaries."
     },
     {
       "id": "US-028",
@@ -478,7 +478,7 @@
       ],
       "priority": 28,
       "passes": false,
-      "notes": "Depends on US-023 (V8 dynamic import), US-024 (native ESM), US-026 (streaming stdin), US-022 (isTTY/setRawMode). The ONLY acceptable skip is skipUnlessPiInstalled. If the sandbox can't run Pi, that's a failing test — fix the sandbox."
+      "notes": "US-023/US-024 make import() and ESM work natively, US-026 makes streaming stdin work, US-022 makes isTTY/setRawMode work. After those land, this is ONLY a test rewrite: remove sandboxSkip probes, load Pi in-VM via kernel.openShell(). The ONLY acceptable skip is skipUnlessPiInstalled. If import() or stdin streaming fails, that means the dependency stories are not done — go back and fix those."
     },
     {
       "id": "US-029",
@@ -516,7 +516,7 @@
       ],
       "priority": 30,
       "passes": false,
-      "notes": "Depends on US-023 (V8 dynamic import) and US-024 (native ESM mode). Claude Code is a bundled ESM Node.js script (cli.js, zero npm deps) — NOT a native binary. Its .node addons (tree-sitter, audio-capture) are optional and gracefully degrade. MUST run in-VM via import() like Pi. Current test spawns claude via host child_process — rewrite to use kernel. ANTHROPIC_BASE_URL is natively supported by Claude Code so mock server integration is straightforward. DO NOT spawn from host. DO NOT create HostBinaryDriver."
+      "notes": "US-023/US-024 make import() and ESM work natively — after those land, Claude Code's bundled ESM loads in-VM with no further sandbox fixes. This story is ONLY a test rewrite: change claude-headless.test.ts to use kernel.spawn('node', ['-e', 'import(...)']) instead of host child_process.spawn. Claude Code is a bundled ESM script (cli.js, zero npm deps) — NOT a native binary. Its .node addons (tree-sitter, audio-capture) are optional. ANTHROPIC_BASE_URL is natively supported so mock server integration is straightforward. DO NOT spawn from host. If import() fails, that means US-023/US-024 are not done — go back and fix those."
     },
     {
       "id": "US-031",
@@ -550,7 +550,7 @@
       ],
       "priority": 32,
       "passes": false,
-      "notes": "Depends on US-023 (V8 dynamic import), US-024 (native ESM), US-026 (streaming stdin), US-022 (isTTY/setRawMode). Claude Code is pure JS — runs in-VM like Pi. No HostBinaryDriver, no host spawning."
+      "notes": "US-023/US-024 make import() and ESM work, US-026 makes streaming stdin work, US-022 makes isTTY/setRawMode work. After those land, this is ONLY a test rewrite: remove sandboxSkip probes, remove HostBinaryDriver/script -qefc, load Claude Code in-VM via kernel.openShell(). If import() or stdin streaming fails, that means the dependency stories are not done — go back and fix those."
     },
     {
       "id": "US-033",

@@ -174,7 +174,7 @@ if (typeof TextEncoder === 'undefined') {
 if (typeof TextDecoder === 'undefined') {
   globalThis.TextDecoder = class TextDecoder {
     constructor() {}
-    decode(buf) { if (!buf) return ''; const u8 = new Uint8Array(buf.buffer || buf); let s = ''; for (let i = 0; i < u8.length;) { const b = u8[i++]; if (b < 128) s += String.fromCharCode(b); else if (b < 224) s += String.fromCharCode(((b&31)<<6)|(u8[i++]&63)); else if (b < 240) { const b2 = u8[i++]; s += String.fromCharCode(((b&15)<<12)|((b2&63)<<6)|(u8[i++]&63)); } else { const b2 = u8[i++], b3 = u8[i++], cp = ((b&7)<<18)|((b2&63)<<12)|((b3&63)<<6)|(u8[i++]&63); if (cp>0xFFFF) { const s2 = cp-0x10000; s += String.fromCharCode(0xD800+(s2>>10), 0xDC00+(s2&0x3FF)); } else s += String.fromCharCode(cp); } } return s; }
+    decode(buf) { if (!buf) return ''; const u8 = buf instanceof Uint8Array ? (buf.byteOffset !== 0 || buf.byteLength !== buf.buffer.byteLength ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf) : new Uint8Array(buf.buffer || buf); let s = ''; for (let i = 0; i < u8.length;) { const b = u8[i++]; if (b < 128) s += String.fromCharCode(b); else if (b < 224) s += String.fromCharCode(((b&31)<<6)|(u8[i++]&63)); else if (b < 240) { const b2 = u8[i++]; s += String.fromCharCode(((b&15)<<12)|((b2&63)<<6)|(u8[i++]&63)); } else { const b2 = u8[i++], b3 = u8[i++], cp = ((b&7)<<18)|((b2&63)<<12)|((b3&63)<<6)|(u8[i++]&63); if (cp>0xFFFF) { const s2 = cp-0x10000; s += String.fromCharCode(0xD800+(s2>>10), 0xDC00+(s2&0x3FF)); } else s += String.fromCharCode(cp); } } return s; }
     get encoding() { return 'utf-8'; }
   };
 }

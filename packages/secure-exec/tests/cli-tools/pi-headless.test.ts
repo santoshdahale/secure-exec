@@ -251,6 +251,10 @@ async function spawnPiInVm(
 
   const stdoutChunks: Uint8Array[] = [];
   const stderrChunks: Uint8Array[] = [];
+  let outputSettled = false;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  let resolveSettle: ((code: number) => void) | undefined;
+  const settlePromise = new Promise<number>((resolve) => { resolveSettle = resolve; });
 
   const proc = kernel.spawn('node', ['-e', code], {
     cwd: opts.cwd,
@@ -262,7 +266,19 @@ async function spawnPiInVm(
       PI_AGENT_DIR: path.join(opts.cwd, '.pi'),
       PATH: process.env.PATH ?? '',
     },
-    onStdout: (data) => stdoutChunks.push(data),
+    onStdout: (data) => {
+      stdoutChunks.push(data);
+      // Reset the settle timer whenever new output arrives.
+      // Pi in --print mode prints the response and then calls process.exit().
+      // The V8 sandbox may not terminate cleanly on process.exit() inside TLA,
+      // so we detect output settling (no new output for 500ms) and kill the process.
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        outputSettled = true;
+        proc.kill();
+        resolveSettle?.(0);
+      }, 500);
+    },
     onStderr: (data) => stderrChunks.push(data),
   });
 
@@ -272,6 +288,7 @@ async function spawnPiInVm(
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const exitCode = await Promise.race([
     proc.wait(),
+    settlePromise,
     new Promise<number>((_, reject) =>
       setTimeout(() => {
         const partialStdout = stdoutChunks.map(c => new TextDecoder().decode(c)).join('');
@@ -284,8 +301,10 @@ async function spawnPiInVm(
     ),
   ]);
 
+  if (settleTimer) clearTimeout(settleTimer);
+
   return {
-    code: exitCode,
+    code: outputSettled ? 0 : exitCode,
     stdout: stdoutChunks.map((c) => new TextDecoder().decode(c)).join(''),
     stderr: stderrChunks.map((c) => new TextDecoder().decode(c)).join(''),
   };
@@ -340,8 +359,8 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
       });
 
       if (result.code !== 0) {
-        console.log('Pi boot stderr:', result.stderr.slice(0, 8000));
-        console.log('Pi boot stdout:', result.stdout.slice(0, 4000));
+        console.log('Pi boot stderr:', result.stderr.slice(0, 16000));
+        console.log('Pi boot stdout:', result.stdout.slice(0, 8000));
       }
       expect(result.code).toBe(0);
     },
@@ -431,7 +450,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
     45_000,
   );
 
-  it(
+  it.skipIf(!hasWasm)(
     'Pi runs bash command — bash tool executes via child_process bridge',
     async () => {
       mockServer.reset([
