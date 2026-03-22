@@ -65,6 +65,10 @@
 - V8 dynamic import callback (`dynamic_import_callback`) uses MODULE_RESOLVE_STATE thread-local — must be initialized before execution for both CJS and ESM modes
 - `enable_dynamic_import()` must be called after every isolate create/restore (not captured in snapshots), alongside `disable_wasm()`
 - `execute_script()` now takes optional `BridgeCallContext` as 2nd arg for dynamic import support in CJS mode
+- Streaming stdin uses _stdinRead bridge handler (async bridge call/response), NOT V8 stream events — stream events have V8 serialization cross-version issues
+- buildPtyBridgeHandlers must be called ONCE per executeInternal — the result is shared between dispatch handlers and main bridge handlers to avoid split closure state
+- process.exit() inside setTimeout callbacks is silently caught by timer error handler — use process.exit() only in synchronous or stdinDispatch contexts
+- PTY stdin flow: shell.write() → PTY master → input buffer → stdin pump (kernel openShell) → proc.writeStdin → onStdinData → resolves _stdinRead promise → readLoop dispatches to stdinDispatch → process.stdin 'data' events
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -817,4 +821,28 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - When V8's module system loads a CJS file via import(), it must be wrapped as ESM (wrapCJSForESMWithModulePath) because V8 parses all module loads as ESM
   - The __dynamicImport global is still installed in V8 snapshots but never called — removing it would require a snapshot rebuild
   - convertEsmToCjs is still needed in loadFileSync for require() of ESM-only packages in CJS exec mode
+---
+
+## 2026-03-21 19:13 - US-026
+- Fixed streaming stdin delivery from PTY to sandbox process
+- Three-layer fix:
+  1. **Kernel stdin pump** (kernel.ts openShell): Reads from PTY slave input buffer and forwards to driverProcess.writeStdin() — bridges shell.write() to the runtime driver
+  2. **Bridge handler** (bridge-handlers.ts buildPtyBridgeHandlers): Added `_stdinRead` async bridge handler that returns a Promise resolving with the next stdin chunk. Host resolves when writeStdin delivers data.
+  3. **Bridge read loop** (bridge/process.ts resume()): When process.stdin.resume() is called on TTY, starts async loop calling _stdinRead repeatedly. Each call creates a pending bridge promise keeping the V8 event loop alive. Data dispatched to stdinDispatch which emits process.stdin 'data' events.
+- Also updated stream.rs to route "stdin" → _stdinDispatch (and other missing event types)
+- Files changed:
+  - packages/core/src/kernel/kernel.ts (stdin pump in openShell)
+  - packages/nodejs/src/bridge-contract.ts (stdinRead key)
+  - packages/nodejs/src/bridge-handlers.ts (PtyBridgeDeps, _stdinRead handler)
+  - packages/nodejs/src/bridge/process.ts (_stdinRead loop, stdinDispatch)
+  - packages/nodejs/src/execution-driver.ts (onStdinReady, deduplicate ptyDeps)
+  - packages/nodejs/src/kernel-runtime.ts (stdinDeliverFn/stdinEndFn via bridge)
+  - native/v8-runtime/src/stream.rs (new event type routing)
+  - packages/secure-exec/tests/kernel/bridge-gap-behavior.test.ts (4 streaming stdin tests)
+- **Learnings for future iterations:**
+  - V8 stream events (sendStreamEvent/dispatch_stream_event) use V8 serialization which may have cross-version issues between host Node.js V8 and Rust V8 crate — prefer bridge call/response for reliable data delivery
+  - Bridge handlers must be built ONCE and shared — duplicate buildPtyBridgeHandlers calls create separate closures with separate state, causing data to go to the wrong instance
+  - process.exit() inside setTimeout callbacks is silently caught by the timer error handler — avoid process.exit() in async timer callbacks
+  - The _stdinRead bridge call pattern keeps the V8 event loop alive via pending promises — each call creates a pending promise until the host resolves it
+  - buildPtyBridgeHandlers exists in BOTH dispatch handlers (inside buildModuleLoadingBridgeHandlers) and main handlers — must use the same ptyDeps/ptyHandlers instance
 ---

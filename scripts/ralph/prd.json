@@ -435,7 +435,7 @@
         "pnpm --filter secure-exec exec vitest run tests/kernel/bridge-gap-behavior.test.ts passes"
       ],
       "priority": 26,
-      "passes": false,
+      "passes": true,
       "notes": "ROOT CAUSE: packages/nodejs/src/kernel-runtime.ts lines ~355-391: writeStdin() pushes to a buffer array, closeStdin() concatenates and resolves a promise that exec() awaits. Stdin is never delivered to the running sandbox process — it's only available as a complete string AFTER closeStdin(). FIX: For PTY-backed processes (openShell), writeStdin() must deliver data to the sandbox's process.stdin in real-time via the V8 session's sendStreamEvent() method (already exists for child process stdout). The bridge's stdin handler in packages/nodejs/src/bridge/process.ts needs a streaming data path, not just the batched _stdinData global. DO NOT work around this by spawning on the host. DO NOT add skip logic."
     },
     {
