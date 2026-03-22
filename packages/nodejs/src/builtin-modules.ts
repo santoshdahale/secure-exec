@@ -336,8 +336,11 @@ export const BUILTIN_NAMED_EXPORTS: Record<string, string[]> = {
 		"join",
 		"normalize",
 		"parse",
+		"posix",
 		"relative",
 		"resolve",
+		"toNamespacedPath",
+		"win32",
 	],
 	async_hooks: [
 		"AsyncLocalStorage",
@@ -514,6 +517,21 @@ export const BUILTIN_NAMED_EXPORTS: Record<string, string[]> = {
 		"parse",
 		"stringify",
 		"unescape",
+	],
+	tty: [
+		"isatty",
+		"ReadStream",
+		"WriteStream",
+	],
+	net: [
+		"Socket",
+		"Server",
+		"createServer",
+		"createConnection",
+		"connect",
+		"isIP",
+		"isIPv4",
+		"isIPv6",
 	],
 	"stream/web": [
 		"ReadableStream",

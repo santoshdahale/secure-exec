@@ -288,12 +288,13 @@ function _emit(event: string, ...args: unknown[]): boolean {
 
 // Stdio stream shape shared by stdout and stderr
 interface StdioWriteStream {
-  write(data: unknown): boolean;
+  write(data: unknown, ...rest: unknown[]): boolean;
   end(): StdioWriteStream;
   on(): StdioWriteStream;
   once(): StdioWriteStream;
   emit(): boolean;
   writable: boolean;
+  writableLength: number;
   isTTY: boolean;
   columns: number;
   rows: number;
@@ -314,10 +315,13 @@ function _getStderrIsTTY(): boolean {
 
 // Stdout stream
 const _stdout: StdioWriteStream = {
-  write(data: unknown): boolean {
-    if (typeof _log !== "undefined") {
+  write(data: unknown, ...rest: unknown[]): boolean {
+    if (typeof _log !== "undefined" && data !== "" && data != null) {
       _log.applySync(undefined, [String(data).replace(/\n$/, "")]);
     }
+    // Support write(data, callback) and write(data, encoding, callback)
+    const cb = typeof rest[rest.length - 1] === "function" ? rest[rest.length - 1] as () => void : null;
+    if (cb) cb();
     return true;
   },
   end(): StdioWriteStream {
@@ -333,6 +337,7 @@ const _stdout: StdioWriteStream = {
     return false;
   },
   writable: true,
+  writableLength: 0,
   get isTTY(): boolean { return _getStdoutIsTTY(); },
   columns: 80,
   rows: 24,
@@ -340,10 +345,13 @@ const _stdout: StdioWriteStream = {
 
 // Stderr stream
 const _stderr: StdioWriteStream = {
-  write(data: unknown): boolean {
-    if (typeof _error !== "undefined") {
+  write(data: unknown, ...rest: unknown[]): boolean {
+    if (typeof _error !== "undefined" && data !== "" && data != null) {
       _error.applySync(undefined, [String(data).replace(/\n$/, "")]);
     }
+    // Support write(data, callback) and write(data, encoding, callback)
+    const cb = typeof rest[rest.length - 1] === "function" ? rest[rest.length - 1] as () => void : null;
+    if (cb) cb();
     return true;
   },
   end(): StdioWriteStream {
@@ -359,6 +367,7 @@ const _stderr: StdioWriteStream = {
     return false;
   },
   writable: true,
+  writableLength: 0,
   get isTTY(): boolean { return _getStderrIsTTY(); },
   columns: 80,
   rows: 24,
@@ -393,33 +402,37 @@ function getStdinFlowMode(): boolean { return (globalThis as Record<string, unkn
 function setStdinFlowMode(v: boolean): void { (globalThis as Record<string, unknown>)._stdinFlowMode = v; }
 
 function _emitStdinData(): void {
-  if (getStdinEnded() || !getStdinData()) return;
+  if (getStdinEnded()) return;
 
-  // In flowing mode, emit all remaining data
-  if (getStdinFlowMode() && getStdinPosition() < getStdinData().length) {
-    const chunk = getStdinData().slice(getStdinPosition());
-    setStdinPosition(getStdinData().length);
+  // In flowing mode, emit remaining data then end
+  if (getStdinFlowMode()) {
+    const data = getStdinData();
+    if (data && getStdinPosition() < data.length) {
+      const chunk = data.slice(getStdinPosition());
+      setStdinPosition(data.length);
 
-    // Emit data event
-    const dataListeners = [...(_stdinListeners["data"] || []), ...(_stdinOnceListeners["data"] || [])];
-    _stdinOnceListeners["data"] = [];
-    for (const listener of dataListeners) {
-      listener(chunk);
+      // Emit data event
+      const dataListeners = [...(_stdinListeners["data"] || []), ...(_stdinOnceListeners["data"] || [])];
+      _stdinOnceListeners["data"] = [];
+      for (const listener of dataListeners) {
+        listener(chunk);
+      }
     }
 
-    // Emit end after all data
-    setStdinEnded(true);
-    const endListeners = [...(_stdinListeners["end"] || []), ...(_stdinOnceListeners["end"] || [])];
-    _stdinOnceListeners["end"] = [];
-    for (const listener of endListeners) {
-      listener();
-    }
-
-    // Emit close
-    const closeListeners = [...(_stdinListeners["close"] || []), ...(_stdinOnceListeners["close"] || [])];
-    _stdinOnceListeners["close"] = [];
-    for (const listener of closeListeners) {
-      listener();
+    // Non-TTY stdin: emit end after all data (or immediately if empty).
+    // TTY stdin uses the streaming _stdinRead read loop for end detection.
+    if (!_getStdinIsTTY()) {
+      setStdinEnded(true);
+      const endListeners = [...(_stdinListeners["end"] || []), ...(_stdinOnceListeners["end"] || [])];
+      _stdinOnceListeners["end"] = [];
+      for (const listener of endListeners) {
+        listener();
+      }
+      const closeListeners = [...(_stdinListeners["close"] || []), ...(_stdinOnceListeners["close"] || [])];
+      _stdinOnceListeners["close"] = [];
+      for (const listener of closeListeners) {
+        listener();
+      }
     }
   }
 }

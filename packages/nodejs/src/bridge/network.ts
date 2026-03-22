@@ -93,6 +93,15 @@ interface FetchOptions {
   integrity?: string;
 }
 
+interface FetchResponseBody {
+  getReader(): { read(): Promise<{ value: Uint8Array | undefined; done: boolean }>; releaseLock(): void };
+  locked: boolean;
+  cancel(): Promise<void>;
+  pipeTo(): Promise<void>;
+  pipeThrough<T>(transform: { readable: T }): T;
+  tee(): [FetchResponseBody, FetchResponseBody];
+}
+
 interface FetchResponse {
   ok: boolean;
   status: number;
@@ -101,6 +110,7 @@ interface FetchResponse {
   url: string;
   redirected: boolean;
   type: string;
+  body: FetchResponseBody;
   text(): Promise<string>;
   json(): Promise<unknown>;
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -148,6 +158,32 @@ export async function fetch(input: string | URL | Request, options: FetchOptions
     body?: string;
   };
 
+  // Build a ReadableStream-like body from the complete response text
+  const bodyText = response.body || "";
+  const bodyBytes = new TextEncoder().encode(bodyText);
+  let bodyRead = false;
+
+  // Minimal ReadableStream that yields the complete response in one chunk
+  const body: FetchResponseBody = {
+    getReader() {
+      let readerDone = bodyRead;
+      return {
+        async read() {
+          if (readerDone) return { value: undefined as Uint8Array | undefined, done: true };
+          readerDone = true;
+          bodyRead = true;
+          return { value: bodyBytes, done: false };
+        },
+        releaseLock() {},
+      };
+    },
+    locked: false,
+    cancel() { return Promise.resolve(); },
+    pipeTo() { return Promise.resolve(); },
+    pipeThrough<T>(transform: { readable: T }): T { return transform.readable; },
+    tee(): [FetchResponseBody, FetchResponseBody] { return [body, body]; },
+  };
+
   // Create Response-like object
   return {
     ok: response.ok,
@@ -157,16 +193,16 @@ export async function fetch(input: string | URL | Request, options: FetchOptions
     url: response.url || resolvedUrl,
     redirected: response.redirected || false,
     type: "basic",
+    body,
 
     async text(): Promise<string> {
-      return response.body || "";
+      return bodyText;
     },
     async json(): Promise<unknown> {
-      return JSON.parse(response.body || "{}");
+      return JSON.parse(bodyText || "{}");
     },
     async arrayBuffer(): Promise<ArrayBuffer> {
-      // Not fully supported - return empty buffer
-      return new ArrayBuffer(0);
+      return bodyBytes.buffer.slice(bodyBytes.byteOffset, bodyBytes.byteOffset + bodyBytes.byteLength);
     },
     async blob(): Promise<never> {
       throw new Error("Blob not supported in sandbox");

@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createKernel } from '../../../core/src/kernel/index.ts';
+import { createKernel, allowAll } from '../../../core/src/kernel/index.ts';
 import type { Kernel, VirtualFileSystem } from '../../../core/src/kernel/index.ts';
 import { InMemoryFileSystem } from '../../../browser/src/os-filesystem.ts';
 import { createNodeRuntime } from '../../../nodejs/src/kernel-runtime.ts';
@@ -164,9 +164,38 @@ function createRedirectingNetworkAdapter(getMockUrl: () => string): NetworkAdapt
   const real = createDefaultNetworkAdapter();
   const rewrite = (url: string): string =>
     url.replace(/https?:\/\/api\.anthropic\.com/, getMockUrl());
+
+  // Direct fetch that bypasses SSRF for mock server (localhost) URLs
+  const directFetch = async (
+    url: string,
+    options?: { method?: string; headers?: Record<string, string>; body?: string | null },
+  ) => {
+    const response = await globalThis.fetch(url, {
+      method: options?.method || 'GET',
+      headers: options?.headers,
+      body: options?.body,
+    });
+    const headers: Record<string, string> = {};
+    response.headers.forEach((v, k) => { headers[k] = v; });
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+      body: await response.text(),
+      url: response.url,
+      redirected: response.redirected,
+    };
+  };
+
   return {
     ...real,
-    fetch: (url, options) => real.fetch(rewrite(url), options),
+    fetch: (url, options) => {
+      const rewritten = rewrite(url);
+      // Bypass SSRF for localhost mock server
+      if (rewritten.startsWith('http://127.0.0.1')) return directFetch(rewritten, options);
+      return real.fetch(rewritten, options);
+    },
     httpRequest: (url, options) => real.httpRequest(rewrite(url), options),
   };
 }
@@ -192,8 +221,6 @@ function buildPiHeadlessCode(opts: {
 // Override process.argv for Pi CLI
 process.argv = ['node', 'pi', ${opts.args.map((a) => JSON.stringify(a)).join(', ')}];
 
-// Import Pi's main module directly and await it
-// (cli.js calls main() without await — the V8 session would exit before async work completes)
 const { main } = await import(${JSON.stringify(PI_MAIN)});
 await main(process.argv.slice(2));
 `;
@@ -214,6 +241,7 @@ async function spawnPiInVm(
   opts: {
     args: string[];
     cwd: string;
+    mockUrl?: string;
     timeoutMs?: number;
   },
 ): Promise<PiResult> {
@@ -228,6 +256,7 @@ async function spawnPiInVm(
     cwd: opts.cwd,
     env: {
       ANTHROPIC_API_KEY: 'test-key',
+      ANTHROPIC_BASE_URL: opts.mockUrl ?? '',
       HOME: opts.cwd,
       NO_COLOR: '1',
       PI_AGENT_DIR: path.join(opts.cwd, '.pi'),
@@ -237,11 +266,18 @@ async function spawnPiInVm(
     onStderr: (data) => stderrChunks.push(data),
   });
 
+  // Close stdin immediately so Pi's readPipedStdin() "end" event fires
+  proc.closeStdin();
+
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const exitCode = await Promise.race([
     proc.wait(),
     new Promise<number>((_, reject) =>
       setTimeout(() => {
+        const partialStdout = stdoutChunks.map(c => new TextDecoder().decode(c)).join('');
+        const partialStderr = stderrChunks.map(c => new TextDecoder().decode(c)).join('');
+        console.error('TIMEOUT partial stdout:', partialStdout.slice(0, 2000));
+        console.error('TIMEOUT partial stderr:', partialStderr.slice(0, 2000));
         proc.kill();
         reject(new Error(`Pi timed out after ${timeoutMs}ms`));
       }, timeoutMs),
@@ -283,7 +319,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
     if (hasWasm) {
       await kernel.mount(createWasmVmRuntime({ commandDirs: [COMMANDS_DIR] }));
     }
-    await kernel.mount(createNodeRuntime({ networkAdapter }));
+    await kernel.mount(createNodeRuntime({ networkAdapter, permissions: allowAll }));
   }, 30_000);
 
   afterAll(async () => {
@@ -299,13 +335,13 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
 
       const result = await spawnPiInVm(kernel, {
         args: ['--print', 'say hello'],
-
+        mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
       });
 
       if (result.code !== 0) {
-        console.log('Pi boot stderr:', result.stderr.slice(0, 2000));
-        console.log('Pi boot stdout:', result.stdout.slice(0, 2000));
+        console.log('Pi boot stderr:', result.stderr.slice(0, 8000));
+        console.log('Pi boot stdout:', result.stdout.slice(0, 4000));
       }
       expect(result.code).toBe(0);
     },
@@ -320,10 +356,16 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
 
       const result = await spawnPiInVm(kernel, {
         args: ['--print', 'say hello'],
-
+        mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
       });
 
+      if (!result.stdout.includes(canary)) {
+        console.log('Pi output stderr:', result.stderr.slice(0, 4000));
+        console.log('Pi output stdout:', result.stdout.slice(0, 4000));
+        console.log('Pi exit code:', result.code);
+        console.log('Mock server requests:', mockServer.requestCount());
+      }
       expect(result.stdout).toContain(canary);
     },
     45_000,
@@ -347,7 +389,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
 
       const result = await spawnPiInVm(kernel, {
         args: ['--print', `read ${path.join(testDir, 'test.txt')} and repeat the contents`],
-
+        mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
       });
 
@@ -377,7 +419,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
 
       const result = await spawnPiInVm(kernel, {
         args: ['--print', `create a file at ${outPath}`],
-
+        mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
       });
 
@@ -399,7 +441,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
 
       const result = await spawnPiInVm(kernel, {
         args: ['--print', 'run ls /'],
-
+        mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
       });
 
@@ -416,7 +458,7 @@ describe.skipIf(piSkip)('Pi headless E2E (sandbox VM)', () => {
 
       const result = await spawnPiInVm(kernel, {
         args: ['--print', '--mode', 'json', 'say hello'],
-
+        mockUrl: `http://127.0.0.1:${mockServer.port}`,
         cwd: workDir,
       });
 

@@ -1332,7 +1332,9 @@ export function buildModuleLoadingBridgeHandlers(
 			const lastSlash = dir.lastIndexOf("/");
 			if (lastSlash > 0) dir = dir.slice(0, lastSlash);
 		}
-		const vfsResult = await resolveModule(req, dir, deps.filesystem, "require", deps.resolutionCache);
+		// Use "import" mode so ESM export conditions are preferred — this handler
+		// is called by V8's native module system for import statements/expressions.
+		const vfsResult = await resolveModule(req, dir, deps.filesystem, "import", deps.resolutionCache);
 		if (vfsResult) return vfsResult;
 		// Fallback: resolve through real host paths for pnpm symlink compatibility.
 		const hostDir = deps.sandboxToHostPath?.(dir) ?? dir;
@@ -1367,13 +1369,20 @@ export function buildModuleLoadingBridgeHandlers(
 		const builtin = getStaticBuiltinWrapperSource(bare);
 		if (builtin) return builtin;
 		// Polyfill-backed builtins (crypto, zlib, etc.)
+		// bundlePolyfill returns an IIFE that evaluates to module.exports — use directly
 		if (hasPolyfill(bare)) {
 			const code = await bundlePolyfill(bare);
 			const namedExports = BUILTIN_NAMED_EXPORTS[bare] ?? [];
 			const namedLines = namedExports
 				.map(name => `export const ${name} = _p.${name};`)
 				.join("\n");
-			return `const _p = (function(){var module={exports:{}};var exports=module.exports;${code};return module.exports})();\nexport default _p;\n${namedLines}\n`;
+			// Augment crypto polyfill with bridge-backed functions missing from browserify
+			const augment = bare === "crypto"
+				? "if(typeof _cryptoRandomUUID!=='undefined'&&!_p.randomUUID){_p.randomUUID=function(){return _cryptoRandomUUID.applySync(undefined,[]);};};\n" +
+				  "if(typeof _cryptoRandomFill!=='undefined'&&!_p.randomFillSync){_p.randomFillSync=function(b){var a=new Uint8Array(b.buffer||b,b.byteOffset||0,b.byteLength||b.length);var d=_cryptoRandomFill.applySync(undefined,[a.length]);for(var i=0;i<a.length;i++)a[i]=d.charCodeAt(i);return b;};};\n" +
+				  "if(typeof _cryptoRandomFill!=='undefined'&&!_p.randomBytes){_p.randomBytes=function(n){var b=new Uint8Array(n);var d=_cryptoRandomFill.applySync(undefined,[n]);for(var i=0;i<n;i++)b[i]=d.charCodeAt(i);return b;};};\n"
+				: "";
+			return `const _p = ${code};\n${augment}export default _p;\n${namedLines}\n`;
 		}
 		// Recognized builtin without a static wrapper or polyfill — return empty stub with named exports
 		if (normalizeBuiltinSpecifier(bare)) {

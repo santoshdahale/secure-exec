@@ -768,6 +768,19 @@ function buildPostRestoreScript(
 	parts.push(getIsolateRuntimeSource("setupFsFacade"));
 	parts.push(getIsolateRuntimeSource("setupDynamicImport"));
 
+	// Node.js CJS compat: `global` is an alias for `globalThis`
+	parts.push(`if(typeof global==='undefined')globalThis.global=globalThis;`);
+
+	// AbortSignal EventTarget compat: V8's AbortSignal may lack addEventListener/removeEventListener.
+	// Provide no-op stubs so callers don't throw, but don't create persistent listener
+	// references that would prevent the V8 session from exiting.
+	parts.push(`(function(){` +
+		`if(typeof AbortSignal!=='undefined'&&!AbortSignal.prototype.addEventListener){` +
+		`AbortSignal.prototype.addEventListener=function(){};` +
+		`AbortSignal.prototype.removeEventListener=function(){};` +
+		`AbortSignal.prototype.dispatchEvent=function(){return true;};` +
+		`}})();`);
+
 	// Inject bridge setup config
 	parts.push(`globalThis.__runtimeBridgeSetupConfig = ${JSON.stringify({
 		initialCwd: bridgeConfig.initialCwd,
