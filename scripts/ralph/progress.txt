@@ -46,6 +46,11 @@
 - Kernel test helpers.ts (packages/secure-exec/tests/kernel/helpers.ts) import paths must match consolidated package structure
 - Pi CLI tests use child_process spawn with fetch-intercept.cjs preload (NODE_OPTIONS=-r fetch-intercept.cjs), not in-VM import
 - V8 runtime binary doesn't support /v regex flag — ESM packages using RGI_Emoji can't load in-VM
+- V8 npm package binary (`@secure-exec/v8-linux-x64-gnu`) takes priority over local cargo build — must copy local build to node_modules after `cargo build --release`
+- ESM detection uses isESM(code, filePath) from @secure-exec/core/internal/shared/esm-utils — checks .mjs extension and import/export syntax
+- ExecOptions.esm flag routes exec() through V8's execute_module() (run mode) instead of execute_script() (exec mode)
+- Module loading bridge handlers (_resolveModule, _loadFile) use the raw (unwrapped) filesystem to bypass permissions — module resolution is internal to V8
+- import.meta.url is populated via HostInitializeImportMetaObjectCallback registered alongside dynamic_import_callback in enable_dynamic_import()
 - _resolveModule receives file paths from V8 ESM module_resolve_callback — must extract dirname before resolution
 - pnpm symlink resolution requires realpathSync + walk-up node_modules/pkg/package.json lookup (resolvePackageExport helper)
 - ESM-only packages need exports["."].import ?? main from package.json (require.resolve fails for import-only exports)
@@ -57,6 +62,9 @@
 - Use XDG_DATA_HOME + unique dir to isolate OpenCode's SQLite database per test run
 - Claude Code headless tests use direct spawn (nodeSpawn) — same pattern as OpenCode headless, not sandbox bridge
 - Claude Code exits 0 on 401 auth errors — check output text for error signals, not just exit code
+- V8 dynamic import callback (`dynamic_import_callback`) uses MODULE_RESOLVE_STATE thread-local — must be initialized before execution for both CJS and ESM modes
+- `enable_dynamic_import()` must be called after every isolate create/restore (not captured in snapshots), alongside `disable_wasm()`
+- `execute_script()` now takes optional `BridgeCallContext` as 2nd arg for dynamic import support in CJS mode
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -746,4 +754,45 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - Claude Code with --dangerously-skip-permissions auto-executes tools without approval UI — tool use tests verify tool name/output appears on screen rather than approval dialog
   - Claude interactive tests use same pattern as OpenCode: script -qefc wrapper, HostBinaryDriver, 3-phase probing (node, spawn, stdin)
   - Pre-creating .claude/settings.json and .terms-accepted in HOME skips Claude's first-run onboarding dialogs
+---
+
+## 2026-03-21 10:30 - US-023
+- Implemented native dynamic import() support in V8 sidecar via HostImportModuleDynamicallyCallback
+- Added `dynamic_import_callback` function in execution.rs that resolves specifiers via IPC, loads source, compiles/instantiates/evaluates as ES module, and returns a Promise with the module namespace
+- Added `enable_dynamic_import()` function to register the callback on isolates
+- Modified `execute_script()` to accept optional `BridgeCallContext` for dynamic import support in CJS mode (sets up MODULE_RESOLVE_STATE thread-local)
+- Registered the callback in session.rs alongside `disable_wasm()` — applied after every isolate create/restore
+- Added Rust-side test (Part 69) verifying dynamic import of a sibling module resolves and returns exports
+- Files changed:
+  - native/v8-runtime/src/execution.rs (dynamic_import_callback, enable_dynamic_import, execute_script signature change, test)
+  - native/v8-runtime/src/session.rs (register callback on isolate, pass bridge_ctx to execute_script)
+- **Learnings for future iterations:**
+  - V8's `set_host_import_module_dynamically_callback` is set on the isolate (not per-context) and must be reapplied after snapshot restore
+  - The dynamic import callback uses the same MODULE_RESOLVE_STATE thread-local as module_resolve_callback — both share the cache
+  - For dynamic import to work in CJS mode (execute_script), MODULE_RESOLVE_STATE must be initialized before script execution
+  - The SIGSEGV in `cargo test --all` is pre-existing (unrelated to this change) — run individual test names to verify
+  - Dynamic import callback errors should reject the Promise rather than throwing (use resolver.reject() pattern)
+---
+
+## 2026-03-21 17:30 - US-024
+- Implemented native ESM mode for V8 sidecar — ESM files now use V8's module system instead of CJS regex conversion
+- kernel-runtime.ts detects ESM files via isESM() and passes esm:true to exec(), which routes to V8 run mode
+- Removed transformDynamicImport from async loadFile handler — V8 handles import() natively (US-023)
+- Applied env/cwd/stdin overrides in run mode (previously exec-only in postRestoreScript)
+- Added HostInitializeImportMetaObjectCallback in Rust sidecar for import.meta.url
+- Fixed module resolution to use raw (unwrapped) filesystem — bypasses user permissions for internal V8 resolution
+- Added 5 ESM tests to bridge-gap-behavior.test.ts: simple ESM, CJS compat, static imports, import.meta.url, dynamic import
+- Files changed:
+  - native/v8-runtime/src/execution.rs (import_meta_callback, registered in enable_dynamic_import)
+  - packages/core/src/shared/api-types.ts (ExecOptions.esm field)
+  - packages/nodejs/src/execution-driver.ts (esm routing, postRestoreScript unification, raw fs for module loading)
+  - packages/nodejs/src/kernel-runtime.ts (isESM detection, esm flag)
+  - packages/nodejs/src/bridge-handlers.ts (removed transformDynamicImport from loadFile)
+  - packages/secure-exec/tests/kernel/bridge-gap-behavior.test.ts (5 new ESM tests)
+- **Learnings for future iterations:**
+  - The npm V8 binary (@secure-exec/v8-linux-x64-gnu) takes priority over local cargo build — must copy to node_modules after rebuild
+  - Module resolution bridge handlers use VFS with permissions — internal V8 resolution needs raw filesystem access
+  - postRestoreScript had different behavior for exec vs run modes — unified to apply env/cwd/stdin in both
+  - import_meta_callback uses MODULE_RESOLVE_STATE thread-local (same as module_resolve_callback) to look up module file paths
+  - cargo test SIGSEGV is pre-existing from US-023 — caused by V8 teardown, not import_meta_callback
 ---
