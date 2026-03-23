@@ -301,33 +301,16 @@ pub fn run_init_script(scope: &mut v8::HandleScope, code: &str) -> (i32, Option<
 /// Runs bridge_code as IIFE first (if non-empty), then compiles and runs user_code
 /// via v8::Script. Returns (exit_code, error) — exit code 0 on success, 1 on error.
 /// The `bridge_cache` parameter enables code caching for repeated bridge compilations.
-/// When `bridge_ctx` is provided, MODULE_RESOLVE_STATE is set up so that dynamic
-/// import() expressions inside CJS code can resolve modules via IPC.
 pub fn execute_script(
     scope: &mut v8::HandleScope,
-    bridge_ctx: Option<&BridgeCallContext>,
     bridge_code: &str,
     user_code: &str,
     bridge_cache: &mut Option<BridgeCodeCache>,
 ) -> (i32, Option<ExecutionError>) {
-    // Set up module resolve state for dynamic import support in CJS mode
-    if let Some(ctx) = bridge_ctx {
-        MODULE_RESOLVE_STATE.with(|cell| {
-            *cell.borrow_mut() = Some(ModuleResolveState {
-                bridge_ctx: ctx as *const BridgeCallContext,
-                module_names: HashMap::new(),
-                module_cache: HashMap::new(),
-            });
-        });
-    }
-
     // Run bridge code IIFE (with code caching)
     if !bridge_code.is_empty() {
         let (code, err) = run_bridge_cached(scope, bridge_code, bridge_cache);
         if code != 0 {
-            if bridge_ctx.is_some() {
-                clear_module_state();
-            }
             return (code, err);
         }
     }
@@ -338,9 +321,6 @@ pub fn execute_script(
         let source = match v8::String::new(tc, user_code) {
             Some(s) => s,
             None => {
-                if bridge_ctx.is_some() {
-                    clear_module_state();
-                }
                 return (
                     1,
                     Some(ExecutionError {
@@ -355,9 +335,6 @@ pub fn execute_script(
         let script = match v8::Script::compile(tc, source, None) {
             Some(s) => s,
             None => {
-                if bridge_ctx.is_some() {
-                    clear_module_state();
-                }
                 return match tc.exception() {
                     Some(e) => {
                         let (c, err) = exception_to_result(tc, e);
@@ -368,9 +345,6 @@ pub fn execute_script(
             }
         };
         if script.run(tc).is_none() {
-            if bridge_ctx.is_some() {
-                clear_module_state();
-            }
             return match tc.exception() {
                 Some(e) => {
                     let (c, err) = exception_to_result(tc, e);
@@ -379,12 +353,8 @@ pub fn execute_script(
                 None => (1, None),
             };
         }
-
     }
 
-    if bridge_ctx.is_some() {
-        clear_module_state();
-    }
     (0, None)
 }
 
@@ -564,12 +534,12 @@ fn build_os_config<'s>(
 
 /// Thread-local state for module resolution during execute_module.
 /// Avoids passing user data through V8's ResolveModuleCallback (which is a plain fn pointer).
-pub(crate) struct ModuleResolveState {
-    pub(crate) bridge_ctx: *const BridgeCallContext,
+struct ModuleResolveState {
+    bridge_ctx: *const BridgeCallContext,
     /// identity_hash → resource_name for referrer lookup
-    pub(crate) module_names: HashMap<NonZeroI32, String>,
+    module_names: HashMap<NonZeroI32, String>,
     /// resolved_path → Global<Module> cache
-    pub(crate) module_cache: HashMap<String, v8::Global<v8::Module>>,
+    module_cache: HashMap<String, v8::Global<v8::Module>>,
 }
 
 // SAFETY: ModuleResolveState is only accessed from the session thread
@@ -578,7 +548,7 @@ pub(crate) struct ModuleResolveState {
 unsafe impl Send for ModuleResolveState {}
 
 thread_local! {
-    pub(crate) static MODULE_RESOLVE_STATE: RefCell<Option<ModuleResolveState>> = const { RefCell::new(None) };
+    static MODULE_RESOLVE_STATE: RefCell<Option<ModuleResolveState>> = const { RefCell::new(None) };
 }
 
 fn clear_module_state() {
@@ -1146,10 +1116,7 @@ pub fn execute_module(
             }
         };
 
-        // NOTE: Do NOT clear module state on success path.
-        // The event loop re-uses the module cache for dynamic import()
-        // in timer callbacks. The session clears it after the event loop ends.
-        // Error paths above still clear on failure.
+        clear_module_state();
         (0, Some(exports_bytes), None)
     }
 }
@@ -2492,7 +2459,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "", "var x = 1 + 2;", &mut None)
+                execute_script(scope, "", "var x = 1 + 2;", &mut None)
             };
 
             assert_eq!(code, 0);
@@ -2512,7 +2479,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, bridge, user, &mut None)
+                execute_script(scope, bridge, user, &mut None)
             };
 
             assert_eq!(code, 0);
@@ -2530,7 +2497,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "", "var x = {;", &mut None)
+                execute_script(scope, "", "var x = {;", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -2548,7 +2515,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "","null.foo", &mut None)
+                execute_script(scope, "", "null.foo", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -2567,7 +2534,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "function {", "var x = 1;", &mut None)
+                execute_script(scope, "function {", "var x = 1;", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -2586,7 +2553,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "","'hello'", &mut None)
+                execute_script(scope, "", "'hello'", &mut None)
             };
 
             assert_eq!(code, 0);
@@ -2604,7 +2571,6 @@ mod tests {
                 let scope = &mut v8::ContextScope::new(scope, local);
                 execute_script(
                     scope,
-                    None,
                     "",
                     "var e = new Error('not found'); e.code = 'ERR_MODULE_NOT_FOUND'; throw e;",
                     &mut None,
@@ -2627,7 +2593,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "","throw 'raw string error';", &mut None)
+                execute_script(scope, "", "throw 'raw string error';", &mut None)
             };
 
             assert_eq!(code, 1);
@@ -3705,7 +3671,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "","while(true) {}", &mut None)
+                execute_script(scope, "", "while(true) {}", &mut None)
             };
 
             assert!(guard.timed_out(), "timeout should have fired");
@@ -3732,7 +3698,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "","1 + 1", &mut None)
+                execute_script(scope, "", "1 + 1", &mut None)
             };
 
             assert!(!guard.timed_out(), "timeout should not have fired");
@@ -3792,7 +3758,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "","_slowFn('never-responds')", &mut None)
+                execute_script(scope, "", "_slowFn('never-responds')", &mut None)
             };
 
             assert_eq!(pending.len(), 1, "should have 1 pending promise");
@@ -3848,7 +3814,7 @@ mod tests {
                 throw err;
             "#;
 
-            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(
                 exit_code, 42,
                 "ProcessExitError should return the error's exit code"
@@ -3876,7 +3842,7 @@ mod tests {
                 throw err;
             "#;
 
-            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(
                 exit_code, 0,
                 "ProcessExitError code 0 should return exit code 0"
@@ -3896,7 +3862,7 @@ mod tests {
             // Regular error without _isProcessExit sentinel
             let code = r#"throw new TypeError("not a process exit")"#;
 
-            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 1, "Regular errors should return exit code 1");
             let err = error.unwrap();
             assert_eq!(err.error_type, "TypeError");
@@ -3924,7 +3890,7 @@ mod tests {
                 throw new ProcessExitError(7);
             "#;
 
-            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 7);
             let err = error.unwrap();
             assert_eq!(err.error_type, "ProcessExitError");
@@ -3942,7 +3908,7 @@ mod tests {
 
             // Thrown string — not an object, should not be detected as ProcessExitError
             let code = r#"throw "just a string""#;
-            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 1);
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
@@ -3955,7 +3921,7 @@ mod tests {
                 obj.code = 99;
                 throw obj;
             "#;
-            let (exit_code2, error2) = execute_script(scope, None, "",code2, &mut None);
+            let (exit_code2, error2) = execute_script(scope, "", code2, &mut None);
             assert_eq!(exit_code2, 1, "_isProcessExit:false should not be detected");
             assert!(error2.is_some());
         }
@@ -3975,7 +3941,7 @@ mod tests {
                 throw err;
             "#;
 
-            let (exit_code, error) = execute_script(scope, None, "",code, &mut None);
+            let (exit_code, error) = execute_script(scope, "", code, &mut None);
             assert_eq!(exit_code, 1);
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
@@ -3992,17 +3958,17 @@ mod tests {
             let scope = &mut v8::ContextScope::new(scope, local);
 
             // SyntaxError
-            let (_, err) = execute_script(scope, None, "","eval('function(')", &mut None);
+            let (_, err) = execute_script(scope, "", "eval('function(')", &mut None);
             let err = err.unwrap();
             assert_eq!(err.error_type, "SyntaxError");
 
             // RangeError
-            let (_, err2) = execute_script(scope, None, "","new Array(-1)", &mut None);
+            let (_, err2) = execute_script(scope, "", "new Array(-1)", &mut None);
             let err2 = err2.unwrap();
             assert_eq!(err2.error_type, "RangeError");
 
             // ReferenceError
-            let (_, err3) = execute_script(scope, None, "","undefinedVariable", &mut None);
+            let (_, err3) = execute_script(scope, "", "undefinedVariable", &mut None);
             let err3 = err3.unwrap();
             assert_eq!(err3.error_type, "ReferenceError");
         }
@@ -4022,7 +3988,7 @@ mod tests {
                 outerFn();
             "#;
 
-            let (_, error) = execute_script(scope, None, "",code, &mut None);
+            let (_, error) = execute_script(scope, "", code, &mut None);
             let err = error.unwrap();
             assert_eq!(err.error_type, "Error");
             assert_eq!(err.message, "deep error");
@@ -4433,7 +4399,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, bridge, "var _saw = _cached;", &mut cache)
+                execute_script(scope, bridge, "var _saw = _cached;", &mut cache)
             };
 
             assert_eq!(code, 0);
@@ -4460,7 +4426,7 @@ mod tests {
                     let scope = &mut v8::HandleScope::new(&mut iso);
                     let local = v8::Local::new(scope, &ctx);
                     let scope = &mut v8::ContextScope::new(scope, local);
-                    execute_script(scope, None, bridge, "", &mut cache)
+                    execute_script(scope, bridge, "", &mut cache)
                 };
                 assert_eq!(code, 0);
                 assert!(cache.is_some());
@@ -4475,7 +4441,7 @@ mod tests {
                     let scope = &mut v8::HandleScope::new(&mut iso);
                     let local = v8::Local::new(scope, &ctx);
                     let scope = &mut v8::ContextScope::new(scope, local);
-                    execute_script(scope, None, bridge, "", &mut cache)
+                    execute_script(scope, bridge, "", &mut cache)
                 };
                 assert_eq!(code, 0);
                 // Cache should still be present (not invalidated)
@@ -4504,7 +4470,6 @@ mod tests {
                     let scope = &mut v8::ContextScope::new(scope, local);
                     execute_script(
                         scope,
-                        None,
                         "(function() { globalThis.x = 'A'; })()",
                         "",
                         &mut cache,
@@ -4525,7 +4490,6 @@ mod tests {
                     let scope = &mut v8::ContextScope::new(scope, local);
                     execute_script(
                         scope,
-                        None,
                         "(function() { globalThis.x = 'B'; })()",
                         "",
                         &mut cache,
@@ -4605,7 +4569,7 @@ mod tests {
                 let scope = &mut v8::HandleScope::new(&mut iso);
                 let local = v8::Local::new(scope, &ctx);
                 let scope = &mut v8::ContextScope::new(scope, local);
-                execute_script(scope, None, "","var x = 1;", &mut cache)
+                execute_script(scope, "", "var x = 1;", &mut cache)
             };
 
             assert_eq!(code, 0);

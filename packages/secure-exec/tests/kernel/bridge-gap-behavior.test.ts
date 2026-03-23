@@ -12,11 +12,11 @@ import type { Kernel } from '../../../core/src/kernel/index.ts';
 import { InMemoryFileSystem } from '../../../browser/src/os-filesystem.ts';
 import { createNodeRuntime } from '../../../nodejs/src/kernel-runtime.ts';
 
-async function createNodeKernel(): Promise<{ kernel: Kernel; vfs: InMemoryFileSystem; dispose: () => Promise<void> }> {
+async function createNodeKernel(): Promise<{ kernel: Kernel; dispose: () => Promise<void> }> {
   const vfs = new InMemoryFileSystem();
   const kernel = createKernel({ filesystem: vfs });
   await kernel.mount(createNodeRuntime());
-  return { kernel, vfs, dispose: () => kernel.dispose() };
+  return { kernel, dispose: () => kernel.dispose() };
 }
 
 /** Collect all output from a PTY-backed process spawned via openShell. */
