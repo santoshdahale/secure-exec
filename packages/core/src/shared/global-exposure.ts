@@ -499,6 +499,11 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host HTTP/2 session settings bridge reference.",
 	},
 	{
+		name: "_networkHttp2SessionSetLocalWindowSizeRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 session local-window bridge reference.",
+	},
+	{
 		name: "_networkHttp2SessionGoawayRaw",
 		classification: "hardened",
 		rationale: "Host HTTP/2 session GOAWAY bridge reference.",
@@ -519,6 +524,16 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host HTTP/2 session lifetime bridge reference.",
 	},
 	{
+		name: "_networkHttp2ServerPollRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 server event-poll bridge reference.",
+	},
+	{
+		name: "_networkHttp2SessionPollRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 session event-poll bridge reference.",
+	},
+	{
 		name: "_networkHttp2StreamRespondRaw",
 		classification: "hardened",
 		rationale: "Host HTTP/2 stream respond bridge reference.",
@@ -537,6 +552,31 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		name: "_networkHttp2StreamEndRaw",
 		classification: "hardened",
 		rationale: "Host HTTP/2 stream end bridge reference.",
+	},
+	{
+		name: "_networkHttp2StreamCloseRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 stream close bridge reference.",
+	},
+	{
+		name: "_networkHttp2StreamPauseRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 stream pause bridge reference.",
+	},
+	{
+		name: "_networkHttp2StreamResumeRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 stream resume bridge reference.",
+	},
+	{
+		name: "_networkHttp2StreamRespondWithFileRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 stream respondWithFile bridge reference.",
+	},
+	{
+		name: "_networkHttp2ServerRespondRaw",
+		classification: "hardened",
+		rationale: "Host HTTP/2 server-response bridge reference.",
 	},
 	{
 		name: "_upgradeSocketWriteRaw",
@@ -627,6 +667,46 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		name: "_netServerCloseRaw",
 		classification: "hardened",
 		rationale: "Host net server close bridge reference.",
+	},
+	{
+		name: "_dgramSocketCreateRaw",
+		classification: "hardened",
+		rationale: "Host dgram socket create bridge reference.",
+	},
+	{
+		name: "_dgramSocketBindRaw",
+		classification: "hardened",
+		rationale: "Host dgram socket bind bridge reference.",
+	},
+	{
+		name: "_dgramSocketRecvRaw",
+		classification: "hardened",
+		rationale: "Host dgram socket receive bridge reference.",
+	},
+	{
+		name: "_dgramSocketSendRaw",
+		classification: "hardened",
+		rationale: "Host dgram socket send bridge reference.",
+	},
+	{
+		name: "_dgramSocketCloseRaw",
+		classification: "hardened",
+		rationale: "Host dgram socket close bridge reference.",
+	},
+	{
+		name: "_dgramSocketAddressRaw",
+		classification: "hardened",
+		rationale: "Host dgram socket address bridge reference.",
+	},
+	{
+		name: "_dgramSocketSetBufferSizeRaw",
+		classification: "hardened",
+		rationale: "Host dgram socket buffer-size setter bridge reference.",
+	},
+	{
+		name: "_dgramSocketGetBufferSizeRaw",
+		classification: "hardened",
+		rationale: "Host dgram socket buffer-size getter bridge reference.",
 	},
 	{
 		name: "_batchResolveModules",

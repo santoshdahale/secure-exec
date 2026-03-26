@@ -85,7 +85,12 @@ When a kernel is available, runtime execution SHALL be mediated through the kern
 
 #### Scenario: Standalone NodeRuntime still uses kernel-backed socket routing
 - **WHEN** a caller constructs `NodeRuntime` without `kernel.mount()` and sandboxed code uses `http.createServer()` or `net.connect()`
-- **THEN** the Node execution driver MUST provision an internal `SocketTable` with a host network adapter so listener ownership, loopback routing, and external socket delegation still flow through kernel-managed socket state
+- **THEN** the Node execution driver MUST provision an internal `SocketTable` so listener ownership and loopback routing still flow through kernel-managed socket state
+
+#### Scenario: Standalone NodeRuntime only provisions host socket delegation when network capability is configured
+- **WHEN** standalone `NodeRuntime` construction omits `SystemDriver.network`
+- **THEN** the internal `SocketTable` MUST NOT provision a host network adapter for external socket delegation
+- **AND** external `net` / `http` client socket attempts MUST remain unavailable or denied by contract instead of silently reaching the host network
 
 #### Scenario: Timer and active-handle budgets route through kernel tables
 - **WHEN** the Node execution driver runs with kernel-provided or internally provisioned process/timer tables

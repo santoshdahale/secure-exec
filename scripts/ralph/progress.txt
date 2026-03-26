@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- Standalone `NodeExecutionDriver` should always keep an internal `SocketTable` for sandbox loopback routing, but it must only attach `createNodeHostNetworkAdapter()` when `SystemDriver.network` is explicitly configured; otherwise omitted network capability silently regains host TCP access.
 - Bridge-level HTTP/fetch client work needs explicit in-flight tracking in `NodeExecutionDriver` state; otherwise `runtime.exec()` can finish before async bridge requests settle and payload-limit failures turn into false green exits.
 - Kernel-backed HTTP client routing should be limited to the loopback-aware default Node adapter path; preserve a documented legacy fallback for custom `NetworkAdapter` injections so adapter-focused tests and no-network stubs still exercise their own behavior.
 - Kernel network permissions only become truly deny-by-default when `KernelImpl` threads `options.permissions?.network` into `SocketTable` and external socket paths call `checkNetworkPermission()` unconditionally; loopback exemptions belong in routing branches, not `if (networkCheck)` guards.
@@ -38,6 +39,17 @@
 - Vendored Node conformance helpers in `packages/secure-exec/tests/node-conformance/common/` must include sibling support files like `countdown.js`; missing common shims can masquerade as runtime regressions across many unrelated tests
 - Raw loopback `net.connect()` traffic into sandbox `http.createServer()` is parsed in `packages/nodejs/src/bridge/network.ts`; ignore leading `\r\n` between pipelined requests and only restart parsing on new socket writes, or leftover CRLF bytes can spin the parser forever
 - `http.Agent` pool progress under `maxTotalSockets` depends on evicting idle free sockets from other origins when the total socket budget is exhausted; otherwise cross-origin queues can deadlock even if per-origin logic looks correct
+
+## [2026-03-26 09:30 PDT] - US-035
+- Implemented standalone network-capability gating by keeping the internal `SocketTable` for loopback routing while only provisioning `createNodeHostNetworkAdapter()` when `SystemDriver.network` is explicitly configured.
+- Fixed the raw `net.connect()` failure path by registering `_netSocketWaitConnectRaw` in the native async bridge registry, and filled the remaining custom-global inventory gaps for the HTTP/2 and dgram bridge globals so the bridge-registry contract stays aligned across layers.
+- Added focused runtime-driver regressions covering omitted-network `fetch`, `http.get`, and `net.connect` behavior against real host listeners, and updated the runtime contract plus root agent guidance to document the intended standalone capability model.
+- Files changed: `.agent/contracts/node-runtime.md`, `CLAUDE.md`, `native/v8-runtime/src/session.rs`, `packages/core/src/shared/global-exposure.ts`, `packages/nodejs/src/execution-driver.ts`, `packages/secure-exec/tests/runtime-driver/node/index.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - `packages/secure-exec/src/index.ts` re-exports `@secure-exec/nodejs` and `@secure-exec/core` package output, so runtime-driver tests can keep exercising stale `dist/` until you rebuild the dependent workspace packages.
+  - Omitting `SystemDriver.network` already makes `fetch`/`httpRequest` fall back to the explicit `createNetworkStub()` path; the silent host-access regression was specific to raw socket bridging through the internally provisioned `SocketTable`.
+  - If a bridge global is awaited with `.apply(..., { result: { promise: true } })`, missing it from `native/v8-runtime/src/session.rs` can turn an immediate failure path into a hang instead of a surfaced error.
+---
 - HTTP agent bookkeeping has to preserve Node’s observable ordering: keep sockets in `agent.sockets` through user `res.on('end')` handlers, move them to `freeSockets` on the following `process.nextTick`, and decrement `totalSocketCount` immediately when `_releaseSocket()` destroys a non-reusable socket
 - Protocol-switch request cleanup is split across two objects: once `http.ClientRequest` emits `'upgrade'` or `'connect'`, the original pre-switch socket must be released from `http.Agent` bookkeeping immediately and the request itself still needs a later `'close'` when the upgraded tunnel socket closes
 - Sandbox `process.stdout.write()` is synchronous and does not invoke a Node-style completion callback; if a test needs output before exit, write first and then call `process.exit()` directly

@@ -473,7 +473,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		const permissions = system.permissions;
 		if (!this.socketTable) {
 			this.socketTable = new SocketTable({
-				hostAdapter: createNodeHostNetworkAdapter(),
+				hostAdapter: system.network ? createNodeHostNetworkAdapter() : undefined,
 				networkCheck: permissions?.network,
 			});
 		}

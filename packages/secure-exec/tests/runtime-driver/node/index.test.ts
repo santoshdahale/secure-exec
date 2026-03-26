@@ -1,4 +1,5 @@
 import * as nodeHttp from "node:http";
+import * as nodeNet from "node:net";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -5979,5 +5980,172 @@ describe("NodeRuntime", () => {
 		const exports = result.exports as { default: { blocked: boolean; error: string } };
 		expect(exports.default.blocked).toBe(true);
 		expect(exports.default.error).toContain("EACCES");
+	});
+
+	it("keeps fetch unavailable when the standalone runtime omits the network adapter", async () => {
+		let requestCount = 0;
+		const server = nodeHttp.createServer((_req, res) => {
+			requestCount += 1;
+			res.writeHead(200, { "content-type": "text/plain" });
+			res.end("host-network-should-stay-unavailable");
+		});
+		await new Promise<void>((resolve, reject) => {
+			server.once("error", reject);
+			server.listen(0, "127.0.0.1", () => resolve());
+		});
+
+		const address = server.address();
+		if (!address || typeof address === "string") {
+			throw new Error("expected an inet listener address");
+		}
+
+		try {
+			proc = createTestNodeRuntime({
+				permissions: { ...allowAllNetwork },
+			});
+			const result = await proc.run(
+				`
+				export default await (async () => {
+					try {
+						const response = await fetch("http://127.0.0.1:${address.port}/");
+						return {
+							ok: true,
+							body: await response.text(),
+						};
+					} catch (error) {
+						return {
+							ok: false,
+							code: error?.code,
+							message: error?.message ?? String(error),
+						};
+					}
+				})();
+				`,
+				"/entry.mjs",
+			);
+			expect(result.code).toBe(0);
+			expect(result.exports).toEqual({
+				default: {
+					ok: false,
+					code: undefined,
+					message: expect.stringContaining("ENOSYS"),
+				},
+			});
+			expect(requestCount).toBe(0);
+		} finally {
+			await new Promise<void>((resolve, reject) => {
+				server.close((error) => {
+					if (error) reject(error);
+					else resolve();
+				});
+			});
+		}
+	});
+
+	it("does not let http.get or net.connect reach host listeners when the standalone runtime omits the network adapter", async () => {
+		const httpServer = nodeHttp.createServer((_req, res) => {
+			res.writeHead(200, { "content-type": "text/plain" });
+			res.end("host-http-should-not-be-reachable");
+		});
+		await new Promise<void>((resolve, reject) => {
+			httpServer.once("error", reject);
+			httpServer.listen(0, "127.0.0.1", () => resolve());
+		});
+
+		const netServer = nodeNet.createServer((socket) => {
+			socket.end("host-net-should-not-be-reachable");
+		});
+		await new Promise<void>((resolve, reject) => {
+			netServer.once("error", reject);
+			netServer.listen(0, "127.0.0.1", () => resolve());
+		});
+
+		const httpAddress = httpServer.address();
+		const netAddress = netServer.address();
+		if (!httpAddress || typeof httpAddress === "string") {
+			throw new Error("expected an inet HTTP listener address");
+		}
+		if (!netAddress || typeof netAddress === "string") {
+			throw new Error("expected an inet TCP listener address");
+		}
+
+		try {
+			proc = createTestNodeRuntime({
+				permissions: { ...allowAllNetwork },
+			});
+			const result = await proc.run(
+				`
+				import http from "node:http";
+				import net from "node:net";
+
+				const httpResult = await new Promise((resolve) => {
+					const req = http.get(
+						{ host: "127.0.0.1", port: ${httpAddress.port}, path: "/" },
+						(res) => {
+							let body = "";
+							res.setEncoding("utf8");
+							res.on("data", (chunk) => {
+								body += chunk;
+							});
+							res.on("end", () => resolve({ ok: true, body }));
+						},
+					);
+					req.on("error", (error) => {
+						resolve({
+							ok: false,
+							code: error?.code,
+							message: error?.message ?? String(error),
+						});
+					});
+				});
+
+				const netResult = await new Promise((resolve) => {
+					const socket = net.connect({ host: "127.0.0.1", port: ${netAddress.port} });
+					socket.once("connect", () => {
+						socket.destroy();
+						resolve({ ok: true });
+					});
+					socket.once("error", (error) => {
+						resolve({
+							ok: false,
+							code: error?.code,
+							message: error?.message ?? String(error),
+						});
+					});
+				});
+
+				export default { httpResult, netResult };
+				`,
+				"/entry.mjs",
+			);
+			expect(result.code).toBe(0);
+			expect(result.exports).toEqual({
+				default: {
+					httpResult: {
+						ok: false,
+						code: undefined,
+						message: expect.stringContaining("ENOSYS"),
+					},
+					netResult: {
+						ok: false,
+						code: undefined,
+						message: expect.stringContaining("ECONNREFUSED"),
+					},
+				},
+			});
+		} finally {
+			await new Promise<void>((resolve, reject) => {
+				httpServer.close((error) => {
+					if (error) reject(error);
+					else resolve();
+				});
+			});
+			await new Promise<void>((resolve, reject) => {
+				netServer.close((error) => {
+					if (error) reject(error);
+					else resolve();
+				});
+			});
+		}
 	});
 });
