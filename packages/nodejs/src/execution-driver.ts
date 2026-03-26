@@ -131,6 +131,7 @@ interface DriverState {
 	activeHttpServerIds: Set<number>;
 	activeHttpServerClosers: Map<number, () => Promise<void>>;
 	pendingHttpServerStarts: { count: number };
+	activeHttpClientRequests: { count: number };
 	activeChildProcesses: Map<number, SpawnedProcess>;
 	activeHostTimers: Set<ReturnType<typeof setTimeout>>;
 	moduleFormatCache: Map<string, "esm" | "cjs" | "json">;
@@ -535,6 +536,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			activeHttpServerIds: new Set(),
 			activeHttpServerClosers: new Map(),
 			pendingHttpServerStarts: { count: 0 },
+			activeHttpClientRequests: { count: 0 },
 			activeChildProcesses: new Map(),
 			activeHostTimers: new Set(),
 			moduleFormatCache: new Map(),
@@ -563,6 +565,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	private hasManagedResources(): boolean {
 		return (
 			this.state.pendingHttpServerStarts.count > 0 ||
+			this.state.activeHttpClientRequests.count > 0 ||
 			this.state.activeHttpServerIds.size > 0 ||
 			this.state.activeChildProcesses.size > 0 ||
 			(!this.ownsProcessTable && this.state.activeHostTimers.size > 0)
@@ -760,6 +763,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				activeHttpServerIds: s.activeHttpServerIds,
 				activeHttpServerClosers: s.activeHttpServerClosers,
 				pendingHttpServerStarts: s.pendingHttpServerStarts,
+				activeHttpClientRequests: s.activeHttpClientRequests,
 				sendStreamEvent,
 				socketTable: this.socketTable,
 				pid: this.pid,

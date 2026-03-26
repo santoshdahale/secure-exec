@@ -1,4 +1,6 @@
 ## Codebase Patterns
+- Bridge-level HTTP/fetch client work needs explicit in-flight tracking in `NodeExecutionDriver` state; otherwise `runtime.exec()` can finish before async bridge requests settle and payload-limit failures turn into false green exits.
+- Kernel-backed HTTP client routing should be limited to the loopback-aware default Node adapter path; preserve a documented legacy fallback for custom `NetworkAdapter` injections so adapter-focused tests and no-network stubs still exercise their own behavior.
 - Kernel network permissions only become truly deny-by-default when `KernelImpl` threads `options.permissions?.network` into `SocketTable` and external socket paths call `checkNetworkPermission()` unconditionally; loopback exemptions belong in routing branches, not `if (networkCheck)` guards.
 - Kernel-mounted runtime drivers must make `DriverProcess.kill()` settle `wait()` / `onExit`; clearing timers, servers, or other runtime resources without resolving process completion leaves kernel `spawn()` callers hung.
 - Vendored `http2` validation/error fixtures sometimes build their expected error text with the sandbox's own `util.inspect()`, so inspect parity bugs can masquerade as bridge-validation regressions
@@ -245,9 +247,19 @@
 - Removed the stale `test-net-*.js` expected-fail glob, marked `US-016` passing in the PRD, and prepared the conformance report outputs to reflect net’s green status.
 - Files changed: `packages/secure-exec/tests/node-conformance/expectations.json`, `packages/secure-exec/tests/node-conformance/conformance-report.json`, `docs/nodejs-conformance-report.mdx`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
 - **Learnings for future iterations:**
-  - The `node/net` bridge is ahead of the Ralph backlog here: rerunning `pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/net'` showed 149 passing tests, so stale story state can lag behind real conformance.
+- The `node/net` bridge is ahead of the Ralph backlog here: rerunning `pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts -t 'node/net'` showed 149 passing tests, so stale story state can lag behind real conformance.
 - Broad conformance globs in `expectations.json` can become silently obsolete as module coverage improves; remove them as soon as the module-level filter is green so later stories start from actual failures instead of outdated assumptions.
 - When a story appears to target already-green behavior, keep the change focused to tracked artifacts and regenerated reports rather than inventing unnecessary bridge edits.
+---
+## [2026-03-26 09:18 PDT] - US-034
+- Replaced the host bridge `networkFetchRaw` / `networkHttpRequestRaw` kernel-backed path with a socket-table client flow that opens kernel-managed sockets for `http:` / `https:` traffic, uses host `http` / `https` over `createKernelSocketDuplex()`, preserves upgrade/connect handling, and keeps direct adapter use only as an explicitly legacy fallback for custom adapters and no-network stubs.
+- Removed the isolate-side direct loopback `http.request()` / `https.request()` self-dispatch branches so sandbox HTTP clients must cross the bridge instead of calling in-process server listeners directly.
+- Added focused regression coverage proving loopback bridge clients hit `SocketTable.connect()` rather than the direct adapter path, documented the retained legacy fallback in the node-bridge contract, and tightened the payload-limit tests to await request failures through ESM top-level `await`.
+- Files changed: `.agent/contracts/node-bridge.md`, `packages/nodejs/src/bridge-handlers.ts`, `packages/nodejs/src/bridge/network.ts`, `packages/nodejs/src/execution-driver.ts`, `packages/nodejs/test/kernel-http-bridge.test.ts`, `packages/nodejs/test/legacy-networking-policy.test.ts`, `packages/secure-exec/tests/runtime-driver/node/payload-limits.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Kernel-routed client HTTP work spans both layers: remove isolate-side direct dispatch in `packages/nodejs/src/bridge/network.ts`, but also replace the host bridge handler's high-level adapter shortcut in `packages/nodejs/src/bridge-handlers.ts` or loopback traffic still bypasses the kernel.
+  - `packages/secure-exec/tests/runtime-driver/*` exercise built `@secure-exec/nodejs` output; after bridge edits, rebuild `@secure-exec/nodejs` and then `@secure-exec/core` before trusting runtime-driver results.
+  - Payload-limit tests for async client requests are more reliable with `run(..., '/entry.mjs')` plus top-level `await` than with detached async IIFEs in `exec()`, because the runtime observes the module evaluation promise directly.
 ---
 ## [2026-03-25 09:52 PDT] - US-016
 - Corrected the earlier stale-pass assumption for `node/net`, implemented real kernel-backed `net.Socket`/`net.Server` parity for keepalive, nodelay, address metadata, and ref/unref behavior, and added focused runtime-driver coverage for accepted-server keepalive state plus unrefed server exit.

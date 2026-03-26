@@ -783,7 +783,7 @@
         "Typecheck passes"
       ],
       "priority": 34,
-      "passes": false,
+      "passes": true,
       "notes": "Current loopback HTTP client requests short-circuit in bridge/network.ts, and external fetch/httpRequest still go straight through the adapter."
     },
     {

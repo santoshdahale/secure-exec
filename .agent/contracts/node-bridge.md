@@ -369,6 +369,12 @@ Bridge-provided `http2` APIs SHALL preserve the basic client/server session and 
 ### Requirement: HTTP ClientRequest Bridge Preserves Abort Destroy And Timeout Lifecycle Semantics
 Bridge-provided `http.ClientRequest` behavior SHALL preserve the observable abort, destroy, timeout, and abort-signal lifecycle that Node.js tests inspect.
 
+#### Scenario: Sandboxed HTTP clients route through kernel sockets before any default host adapter fallback
+- **WHEN** sandboxed code calls `http.request()`, `https.request()`, or global `fetch()` against an `http:` / `https:` URL while the standard loopback-aware Node network adapter is active
+- **THEN** the bridge MUST open a kernel-managed socket path for both loopback and external client traffic instead of short-circuiting directly to in-process listeners or calling the adapter's high-level `fetch` / `httpRequest` helpers
+- **AND** network allow/deny decisions for that kernel-backed path MUST come from kernel socket permission enforcement
+- **AND** any retained direct-adapter client fallback MUST be limited to explicitly legacy custom-adapter or no-network stub cases outside kernel-consolidation claims
+
 #### Scenario: Sandboxed code aborts or destroys an HTTP request
 - **WHEN** sandboxed code calls `req.abort()` or `req.destroy()` on an `http.ClientRequest`
 - **THEN** the request MUST expose Node-compatible `aborted` / `destroyed` state

@@ -12,6 +12,15 @@ import { createBudgetState } from "../src/isolate-bootstrap.ts";
 
 const allowAll = (): PermissionDecision => ({ allow: true });
 
+class TrackingSocketTable extends SocketTable {
+	connectCalls: Array<{ host: string; port: number }> = [];
+
+	override async connect(socketId: number, addr: { host: string; port: number }): Promise<void> {
+		this.connectCalls.push({ host: addr.host, port: addr.port });
+		return await super.connect(socketId, addr);
+	}
+}
+
 describe("kernel HTTP bridge", () => {
 	it("serves host-side HTTP requests through the kernel-backed listener", async () => {
 		const adapter = createDefaultNetworkAdapter();
@@ -27,6 +36,7 @@ describe("kernel HTTP bridge", () => {
 			activeHttpServerIds: new Set(),
 			activeHttpServerClosers: new Map(),
 			pendingHttpServerStarts: { count: 0 },
+			activeHttpClientRequests: { count: 0 },
 			sendStreamEvent(eventType, payload) {
 				if (eventType !== "http_request") return;
 				const event = deserialize(Buffer.from(payload)) as {
@@ -83,6 +93,102 @@ describe("kernel HTTP bridge", () => {
 			expect(fetchResponse.body).toBe("bridge-ok");
 		} finally {
 			await Promise.resolve(closeRaw(1));
+			await result.dispose();
+		}
+	});
+
+	it("routes fetch/httpRequest loopback clients through kernel sockets instead of direct adapter calls", async () => {
+		const adapter = createDefaultNetworkAdapter() as ReturnType<typeof createDefaultNetworkAdapter> & {
+			fetch: typeof createDefaultNetworkAdapter extends (...args: any[]) => infer T
+				? T["fetch"]
+				: never;
+			httpRequest: typeof createDefaultNetworkAdapter extends (...args: any[]) => infer T
+				? T["httpRequest"]
+				: never;
+		};
+		adapter.fetch = async () => {
+			throw new Error("legacy fetch adapter path used");
+		};
+		adapter.httpRequest = async () => {
+			throw new Error("legacy httpRequest adapter path used");
+		};
+
+		const socketTable = new TrackingSocketTable({
+			hostAdapter: createNodeHostNetworkAdapter(),
+			networkCheck: allowAll,
+		});
+
+		const result = buildNetworkBridgeHandlers({
+			networkAdapter: adapter,
+			budgetState: createBudgetState(),
+			isolateJsonPayloadLimitBytes: 1024 * 1024,
+			activeHttpServerIds: new Set(),
+			activeHttpServerClosers: new Map(),
+			pendingHttpServerStarts: { count: 0 },
+			activeHttpClientRequests: { count: 0 },
+			sendStreamEvent(eventType, payload) {
+				if (eventType !== "http_request") return;
+				const event = deserialize(Buffer.from(payload)) as {
+					requestId: number;
+					serverId: number;
+				};
+				resolveHttpServerResponse({
+					requestId: event.requestId,
+					serverId: event.serverId,
+					responseJson: JSON.stringify({
+						status: 200,
+						headers: [["content-type", "text/plain"]],
+						body: "kernel-routed",
+						bodyEncoding: "utf8",
+					}),
+				});
+			},
+			socketTable,
+			pid: 1,
+		});
+
+		const listenRaw = result.handlers[HOST_BRIDGE_GLOBAL_KEYS.networkHttpServerListenRaw];
+		const fetchRaw = result.handlers[HOST_BRIDGE_GLOBAL_KEYS.networkFetchRaw];
+		const httpRequestRaw = result.handlers[HOST_BRIDGE_GLOBAL_KEYS.networkHttpRequestRaw];
+		const closeRaw = result.handlers[HOST_BRIDGE_GLOBAL_KEYS.networkHttpServerCloseRaw];
+		const listenResult = await Promise.resolve(
+			listenRaw(JSON.stringify({ serverId: 2, hostname: "127.0.0.1", port: 0 })),
+		);
+		const { address } = JSON.parse(String(listenResult)) as {
+			address: { address: string; port: number } | null;
+		};
+
+		if (!address) {
+			throw new Error("expected kernel listener address");
+		}
+
+		try {
+			const url = `http://127.0.0.1:${address.port}/kernel-client`;
+
+			const fetchResponse = JSON.parse(String(await Promise.resolve(
+				fetchRaw(url, JSON.stringify({ method: "GET", headers: {}, body: null })),
+			))) as {
+				status: number;
+				body: string;
+			};
+			expect(fetchResponse.status).toBe(200);
+			expect(fetchResponse.body).toBe("kernel-routed");
+
+			const httpResponse = JSON.parse(String(await Promise.resolve(
+				httpRequestRaw(url, JSON.stringify({ method: "GET", headers: {}, body: null })),
+			))) as {
+				status: number;
+				body: string;
+			};
+			expect(httpResponse.status).toBe(200);
+			expect(httpResponse.body).toBe("kernel-routed");
+			expect(socketTable.connectCalls).toEqual(
+				expect.arrayContaining([
+					{ host: "127.0.0.1", port: address.port },
+				]),
+			);
+		} finally {
+			await Promise.resolve(closeRaw(2));
 			await result.dispose();
 		}
 	});

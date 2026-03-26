@@ -5,9 +5,11 @@
 
 import * as net from "node:net";
 import * as http from "node:http";
+import * as https from "node:https";
 import * as http2 from "node:http2";
 import * as tls from "node:tls";
 import * as hostUtil from "node:util";
+import * as zlib from "node:zlib";
 import { Duplex, PassThrough } from "node:stream";
 import { readFileSync, realpathSync, existsSync } from "node:fs";
 import { dirname as pathDirname, join as pathJoin, resolve as pathResolve } from "node:path";
@@ -3869,6 +3871,7 @@ export interface NetworkBridgeDeps {
 	activeHttpServerIds: Set<number>;
 	activeHttpServerClosers: Map<number, () => Promise<void>>;
 	pendingHttpServerStarts: { count: number };
+	activeHttpClientRequests: { count: number };
 	/** Push HTTP server/upgrade events into the V8 isolate. */
 	sendStreamEvent: (eventType: string, payload: Uint8Array) => void;
 	/** Kernel socket table for all bridge-managed HTTP server routing. */
@@ -3918,6 +3921,75 @@ function debugHttpBridge(...args: unknown[]): void {
 	if (process.env.SECURE_EXEC_DEBUG_HTTP_BRIDGE === "1") {
 		console.error("[secure-exec http bridge]", ...args);
 	}
+}
+
+const MAX_REDIRECTS = 20;
+
+type KernelHttpClientRequestOptions = {
+	method?: string;
+	headers?: Record<string, string>;
+	body?: string | null;
+	rejectUnauthorized?: boolean;
+};
+
+type KernelHttpClientResponse = Awaited<ReturnType<NetworkAdapter["httpRequest"]>> & {
+	rawHeaders?: string[];
+};
+
+function shouldUseKernelHttpClientPath(
+	adapter: NetworkAdapter,
+	urlString: string,
+): boolean {
+	const loopbackAwareAdapter = adapter as NetworkAdapter & {
+		__setLoopbackPortChecker?: (checker: (hostname: string, port: number) => boolean) => void;
+	};
+	if (typeof loopbackAwareAdapter.__setLoopbackPortChecker !== "function") {
+		return false;
+	}
+	try {
+		const parsed = new URL(urlString);
+		return parsed.protocol === "http:" || parsed.protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
+async function maybeDecompressHttpBody(
+	buffer: Buffer,
+	contentEncoding: string | string[] | undefined,
+): Promise<Buffer> {
+	const encoding = Array.isArray(contentEncoding)
+		? contentEncoding[0]
+		: contentEncoding;
+	if (encoding !== "gzip" && encoding !== "deflate") {
+		return buffer;
+	}
+
+	try {
+		return await new Promise<Buffer>((resolve, reject) => {
+			const decompress = encoding === "gzip" ? zlib.gunzip : zlib.inflate;
+			decompress(buffer, (err, result) => {
+				if (err) reject(err);
+				else resolve(result);
+			});
+		});
+	} catch {
+		// Preserve the original bytes when decompression fails.
+		return buffer;
+	}
+}
+
+function shouldEncodeHttpBodyAsBinary(
+	urlString: string,
+	headers: http.IncomingHttpHeaders,
+): boolean {
+	const contentType = headers["content-type"] || "";
+	const headerValue = Array.isArray(contentType) ? contentType.join(", ") : contentType;
+	return (
+		headerValue.includes("octet-stream") ||
+		headerValue.includes("gzip") ||
+		urlString.endsWith(".tgz")
+	);
 }
 
 /**
@@ -4274,6 +4346,194 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 		return false;
 	});
 
+	const performKernelHttpRequest = async (
+		urlString: string,
+		requestOptions: KernelHttpClientRequestOptions,
+	): Promise<KernelHttpClientResponse> => {
+		const url = new URL(urlString);
+		const isHttps = url.protocol === "https:";
+		const host = url.hostname;
+		const port = Number(url.port || (isHttps ? 443 : 80));
+		const socketId = socketTable.create(
+			host.includes(":") ? AF_INET6 : AF_INET,
+			SOCK_STREAM,
+			0,
+			pid,
+		);
+		await socketTable.connect(socketId, { host, port });
+
+		const baseTransport = createKernelSocketDuplex(socketId, socketTable, pid);
+		const requestTransport = isHttps
+			? tls.connect({
+				socket: baseTransport,
+				servername: host,
+				...(requestOptions.rejectUnauthorized !== undefined
+					? { rejectUnauthorized: requestOptions.rejectUnauthorized }
+					: {}),
+			})
+			: baseTransport;
+
+		const transport = isHttps ? https : http;
+
+		return await new Promise<KernelHttpClientResponse>((resolve, reject) => {
+			let settled = false;
+			const settleResolve = (value: KernelHttpClientResponse) => {
+				if (settled) return;
+				settled = true;
+				resolve(value);
+			};
+			const settleReject = (error: unknown) => {
+				if (settled) return;
+				settled = true;
+				reject(error);
+			};
+
+			const req = transport.request({
+				hostname: host,
+				port,
+				path: `${url.pathname}${url.search}`,
+				method: requestOptions.method || "GET",
+				headers: requestOptions.headers || {},
+				agent: false,
+				createConnection: () => requestTransport,
+			}, (res: http.IncomingMessage) => {
+				const chunks: Buffer[] = [];
+				res.on("data", (chunk: Buffer) => {
+					chunks.push(chunk);
+				});
+				res.on("error", (error: Error) => {
+					requestTransport.destroy();
+					settleReject(error);
+				});
+				res.on("end", async () => {
+					const decodedBuffer = await maybeDecompressHttpBody(
+						Buffer.concat(chunks),
+						res.headers["content-encoding"],
+					);
+					const buffer = Buffer.from(decodedBuffer);
+
+					const headers: Record<string, string> = {};
+					const rawHeaders = [...res.rawHeaders];
+					Object.entries(res.headers).forEach(([key, value]) => {
+						if (typeof value === "string") headers[key] = value;
+						else if (Array.isArray(value)) headers[key] = value.join(", ");
+					});
+					delete headers["content-encoding"];
+
+					const trailers: Record<string, string> = {};
+					Object.entries(res.trailers || {}).forEach(([key, value]) => {
+						if (typeof value === "string") trailers[key] = value;
+					});
+
+					const result: KernelHttpClientResponse = {
+						status: res.statusCode || 200,
+						statusText: res.statusMessage || "OK",
+						headers,
+						rawHeaders,
+						url: urlString,
+						body: shouldEncodeHttpBodyAsBinary(urlString, res.headers)
+							? (() => {
+								headers["x-body-encoding"] = "base64";
+								return buffer.toString("base64");
+							})()
+							: buffer.toString("utf8"),
+					};
+					if (Object.keys(trailers).length > 0) {
+						result.trailers = trailers;
+					}
+					requestTransport.destroy();
+					settleResolve(result);
+				});
+			});
+
+			req.on("upgrade", (res: http.IncomingMessage, upgradedSocket: Duplex, head: Buffer) => {
+				const headers: Record<string, string> = {};
+				const rawHeaders = [...res.rawHeaders];
+				Object.entries(res.headers).forEach(([key, value]) => {
+					if (typeof value === "string") headers[key] = value;
+					else if (Array.isArray(value)) headers[key] = value.join(", ");
+				});
+				settleResolve({
+					status: res.statusCode || 101,
+					statusText: res.statusMessage || "Switching Protocols",
+					headers,
+					rawHeaders,
+					body: head.toString("base64"),
+					url: urlString,
+					upgradeSocketId: registerKernelUpgradeSocket(upgradedSocket as Duplex),
+				});
+			});
+
+			req.on("connect", (res: http.IncomingMessage, connectSocket: Duplex, head: Buffer) => {
+				const headers: Record<string, string> = {};
+				const rawHeaders = [...res.rawHeaders];
+				Object.entries(res.headers).forEach(([key, value]) => {
+					if (typeof value === "string") headers[key] = value;
+					else if (Array.isArray(value)) headers[key] = value.join(", ");
+				});
+				settleResolve({
+					status: res.statusCode || 200,
+					statusText: res.statusMessage || "Connection established",
+					headers,
+					rawHeaders,
+					body: head.toString("base64"),
+					url: urlString,
+					upgradeSocketId: registerKernelUpgradeSocket(connectSocket as Duplex),
+				});
+			});
+
+			req.on("error", (error: Error) => {
+				requestTransport.destroy();
+				settleReject(error);
+			});
+
+			if (requestOptions.body) {
+				req.write(requestOptions.body);
+			}
+			req.end();
+		});
+	};
+
+	const performKernelFetch = async (
+		urlString: string,
+		requestOptions: KernelHttpClientRequestOptions,
+	): Promise<Awaited<ReturnType<NetworkAdapter["fetch"]>>> => {
+		let currentUrl = urlString;
+		let redirected = false;
+		let currentOptions = { ...requestOptions };
+
+		for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+			const response = await performKernelHttpRequest(currentUrl, currentOptions);
+			if ([301, 302, 303, 307, 308].includes(response.status)) {
+				const location = response.headers.location;
+				if (location) {
+					currentUrl = new URL(location, currentUrl).href;
+					redirected = true;
+					if (response.status === 301 || response.status === 302 || response.status === 303) {
+						currentOptions = {
+							...currentOptions,
+							method: "GET",
+							body: null,
+						};
+					}
+					continue;
+				}
+			}
+
+			return {
+				ok: response.status >= 200 && response.status < 300,
+				status: response.status,
+				statusText: response.statusText,
+				headers: { ...response.headers },
+				body: response.body,
+				url: currentUrl,
+				redirected,
+			};
+		}
+
+		throw new Error("Too many redirects");
+	};
+
 	const registerKernelUpgradeSocket = (socket: Duplex): number => {
 		const socketId = nextKernelUpgradeSocketId++;
 		kernelUpgradeSockets.set(socketId, socket);
@@ -4325,10 +4585,19 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 		checkBridgeBudget(deps);
 		const options = parseJsonWithLimit<{ method?: string; headers?: Record<string, string>; body?: string | null }>(
 			"network.fetch options", String(optionsJson), jsonLimit);
-		const result = await adapter.fetch(String(url), options);
-		const json = JSON.stringify(result);
-		assertTextPayloadSize("network.fetch response", json, jsonLimit);
-		return json;
+		deps.activeHttpClientRequests.count += 1;
+		try {
+			const urlString = String(url);
+			const result = shouldUseKernelHttpClientPath(adapter, urlString)
+				? await performKernelFetch(urlString, options)
+				// Legacy fallback for custom adapters and explicit no-network stubs.
+				: await adapter.fetch(urlString, options);
+			const json = JSON.stringify(result);
+			assertTextPayloadSize("network.fetch response", json, jsonLimit);
+			return json;
+		} finally {
+			deps.activeHttpClientRequests.count = Math.max(0, deps.activeHttpClientRequests.count - 1);
+		}
 	};
 
 	handlers[K.networkDnsLookupRaw] = async (hostname: unknown): Promise<string> => {
@@ -4341,10 +4610,19 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 		checkBridgeBudget(deps);
 		const options = parseJsonWithLimit<{ method?: string; headers?: Record<string, string>; body?: string | null; rejectUnauthorized?: boolean }>(
 			"network.httpRequest options", String(optionsJson), jsonLimit);
-		const result = await adapter.httpRequest(String(url), options);
-		const json = JSON.stringify(result);
-		assertTextPayloadSize("network.httpRequest response", json, jsonLimit);
-		return json;
+		deps.activeHttpClientRequests.count += 1;
+		try {
+			const urlString = String(url);
+			const result = shouldUseKernelHttpClientPath(adapter, urlString)
+				? await performKernelHttpRequest(urlString, options)
+				// Legacy fallback for custom adapters and explicit no-network stubs.
+				: await adapter.httpRequest(urlString, options);
+			const json = JSON.stringify(result);
+			assertTextPayloadSize("network.httpRequest response", json, jsonLimit);
+			return json;
+		} finally {
+			deps.activeHttpClientRequests.count = Math.max(0, deps.activeHttpClientRequests.count - 1);
+		}
 	};
 
 	handlers[K.networkHttpServerRespondRaw] = (

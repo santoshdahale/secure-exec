@@ -29,6 +29,9 @@ describe('legacy networking removal policy', () => {
 
 		expect(bridgeNetworkSource).not.toContain('activeNetSockets');
 		expect(bridgeNetworkSource).toContain('NET_SOCKET_REGISTRY_PREFIX');
+		expect(bridgeNetworkSource).not.toContain('const directLoopbackConnectServer =');
+		expect(bridgeNetworkSource).not.toContain('const directLoopbackUpgradeServer =');
+		expect(bridgeNetworkSource).not.toContain('const directLoopbackServer =');
 		expect(bridgeHandlersSource).not.toContain('adapter.httpServerListen');
 		expect(bridgeHandlersSource).not.toContain('adapter.httpServerClose');
 	});

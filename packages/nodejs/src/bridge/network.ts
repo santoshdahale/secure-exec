@@ -1191,100 +1191,14 @@ export class ClientRequest {
       }
       const normalizedHeaders = normalizeRequestHeaders(this._options.headers);
       const requestMethod = String(this._options.method || "GET").toUpperCase();
-      const loopbackServerByPort = findLoopbackServerByPort(this._options);
-      const directLoopbackConnectServer =
-        requestMethod === "CONNECT"
-          ? loopbackServerByPort
-          : null;
-      const directLoopbackUpgradeServer =
-        requestMethod !== "CONNECT" &&
-        hasUpgradeRequestHeaders(normalizedHeaders) &&
-        loopbackServerByPort?.listenerCount("upgrade")
-          ? loopbackServerByPort
-          : null;
-
-      if (directLoopbackConnectServer) {
-        const response = await dispatchLoopbackConnectRequest(
-          directLoopbackConnectServer,
-          this._options,
-        );
-        this.finished = true;
-        this.socket = response.socket;
-        response.response.socket = response.socket;
-        response.socket.once("close", () => {
-          this._emit("close");
-        });
-        this._emit("connect", response.response, response.socket, response.head);
-        process.nextTick(() => {
-          this._finalizeSocket(socket, false);
-        });
-        return;
-      }
-
-      if (directLoopbackUpgradeServer) {
-        const response = await dispatchLoopbackUpgradeRequest(
-          directLoopbackUpgradeServer,
-          this._options,
-          this._body,
-        );
-        this.finished = true;
-        this.socket = response.socket;
-        response.response.socket = response.socket;
-        response.socket.once("close", () => {
-          this._emit("close");
-        });
-        this._emit("upgrade", response.response, response.socket, response.head);
-        process.nextTick(() => {
-          this._finalizeSocket(socket, false);
-        });
-        return;
-      }
-
-      const directLoopbackServer =
-        requestMethod !== "CONNECT" &&
-        hasUpgradeRequestHeaders(normalizedHeaders) &&
-        !directLoopbackUpgradeServer
-          ? loopbackServerByPort
-          : findLoopbackServerForRequest(this._options);
-      const directLoopbackHttp2CompatServer =
-        !directLoopbackServer &&
-        requestMethod !== "CONNECT" &&
-        !hasUpgradeRequestHeaders(normalizedHeaders)
-          ? findLoopbackHttp2CompatibilityServer(this._options)
-          : null;
-      const serializedRequest = JSON.stringify({
-        method: requestMethod,
-        url: this._options.path || "/",
+      const responseJson = await _networkHttpRequestRaw.apply(undefined, [url, JSON.stringify({
+        method: this._options.method || "GET",
         headers: normalizedHeaders,
-        rawHeaders: flattenRawHeaders(normalizedHeaders),
-        bodyBase64: this._body
-          ? Buffer.from(this._body).toString("base64")
-          : undefined,
-      } satisfies SerializedServerRequest);
-      const loopbackResponse = directLoopbackServer
-        ? await dispatchLoopbackServerRequest(
-            directLoopbackServer._bridgeServerId,
-            serializedRequest,
-          )
-        : directLoopbackHttp2CompatServer
-          ? await dispatchLoopbackHttp2CompatibilityRequest(
-              directLoopbackHttp2CompatServer,
-              serializedRequest,
-            )
-        : null;
-      if (loopbackResponse) {
-        this._loopbackAbort = loopbackResponse.abortRequest;
-      }
-      const responseJson = loopbackResponse
-        ? loopbackResponse.responseJson
-        : await _networkHttpRequestRaw.apply(undefined, [url, JSON.stringify({
-            method: this._options.method || "GET",
-            headers: normalizedHeaders,
-            body: this._body || null,
-            ...tls,
-          })], {
-            result: { promise: true },
-          });
+        body: this._body || null,
+        ...tls,
+      })], {
+        result: { promise: true },
+      });
       const response = JSON.parse(responseJson) as {
         headers?: Record<string, string | string[]>;
         rawHeaders?: string[];
@@ -1296,8 +1210,6 @@ export class ClientRequest {
         trailers?: Record<string, string>;
         informational?: SerializedInformationalResponse[];
         upgradeSocketId?: number;
-        connectionEnded?: boolean;
-        connectionReset?: boolean;
       };
 
       this.finished = true;
@@ -1357,15 +1269,6 @@ export class ClientRequest {
         return;
       }
 
-      if (response.connectionReset) {
-        const error = createConnResetError();
-        this._emit("error", error);
-        process.nextTick(() => {
-          this._finalizeSocket(socket, false);
-        });
-        return;
-      }
-
       for (const informational of response.informational || []) {
         this._emit("information", new IncomingMessage({
           headers: Object.fromEntries(informational.headers || []),
@@ -1381,9 +1284,6 @@ export class ClientRequest {
       res.once("end", () => {
         process.nextTick(() => {
           this._finalizeSocket(socket, this._agent?.keepAlive === true && !this.aborted);
-          if (response.connectionEnded) {
-            queueMicrotask(() => socket.end?.());
-          }
         });
       });
 

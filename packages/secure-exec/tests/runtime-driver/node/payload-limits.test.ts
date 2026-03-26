@@ -31,10 +31,12 @@ function formatConsoleChannel(
 function createConsoleCapture() {
 	const events: CapturedConsoleEvent[] = [];
 	return {
+		events,
 		onStdio: (event: CapturedConsoleEvent) => {
 			events.push(event);
 		},
 		stdout: () => formatConsoleChannel(events, "stdout"),
+		stderr: () => formatConsoleChannel(events, "stderr"),
 	};
 }
 
@@ -268,11 +270,13 @@ describe("NodeRuntime payload limits", () => {
 			networkAdapter: adapter,
 			permissions: allowAllNetwork,
 		});
-		const result = await proc.exec(`
-      (async () => {
-        await fetch('https://example.test/large');
-      })();
-    `);
+		const result = await proc.run(
+			`
+				await fetch('https://example.test/large');
+				export default 'unexpected success';
+			`,
+			"/entry.mjs",
+		);
 		expect(result.code).toBe(1);
 		expect(result.errorMessage).toContain(PAYLOAD_LIMIT_ERROR_CODE);
 		expect(result.errorMessage).toContain("network.fetch response");
@@ -309,20 +313,22 @@ describe("NodeRuntime payload limits", () => {
 			networkAdapter: adapter,
 			permissions: allowAllNetwork,
 		});
-		const result = await proc.exec(`
-      (async () => {
-        const http = require('http');
-        await new Promise((resolve, reject) => {
-          const req = http.request('https://example.test/large', { method: 'GET' }, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => resolve(data));
-          });
-          req.on('error', reject);
-          req.end();
-        });
-      })();
-    `);
+		const result = await proc.run(
+			`
+				import http from 'http';
+
+				export default await new Promise((resolve, reject) => {
+					const req = http.request('https://example.test/large', { method: 'GET' }, (res) => {
+						let data = '';
+						res.on('data', chunk => data += chunk);
+						res.on('end', () => resolve(data));
+					});
+					req.on('error', reject);
+					req.end();
+				});
+			`,
+			"/entry.mjs",
+		);
 		expect(result.code).toBe(1);
 		expect(result.errorMessage).toContain(PAYLOAD_LIMIT_ERROR_CODE);
 		expect(result.errorMessage).toContain("network.httpRequest response");
