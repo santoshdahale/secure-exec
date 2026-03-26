@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- Kernel-backed `/proc/self` tests must run through a process-scoped runtime such as `createNodeRuntime()` + `kernel.spawn('node', ...)` (or `createProcessScopedFileSystem`); raw kernel `vfs` calls have no caller PID context, and standalone NodeRuntime intentionally keeps `/proc/self/environ` denied.
 - `AF_UNIX` sockets are local IPC, not host networking: kernel `SocketTable` bind/listen/connect for path sockets must stay fully in-kernel, bypass `permissions.network`, and use only the listener registry plus VFS socket-file state.
 - Socket constants like `SOL_SOCKET`, `TCP_NODELAY`, and `MSG_*` are not exported from the public `@secure-exec/core` entrypoint; tests or adapters outside `packages/core` should import them from the kernel surface (`core/src/kernel/index.ts` in-repo or `@secure-exec/core/internal/kernel` from package consumers).
 - Host-backed UDP verification should include a real `packages/secure-exec/tests/kernel/` case with `createKernel()`, `createNodeHostNetworkAdapter()`, and real `node:dgram` peers; socket-table unit tests only cover transport helpers, and host-visible UDP unit tests still need an explicit `networkCheck` fixture.
@@ -688,4 +689,14 @@
   - Public `@secure-exec/core` exports only the top-level socket classes and domains; kernel socket constants must come from the kernel surface (`core/src/kernel/index.ts` in-repo or `@secure-exec/core/internal/kernel` for package consumers) or option/flag tests will silently use `undefined`.
   - Host-backed socket option coverage is easiest to prove by wrapping `createNodeHostNetworkAdapter()` and recording `HostSocket.setOption()` calls while still delegating to the real Node socket underneath.
   - Socket-flag unit helpers that create loopback listeners need the same explicit allow-all `networkCheck` fixture as other `listen()`-based `SocketTable` tests, or deny-by-default networking fails them before any flag behavior runs.
+---
+## [2026-03-26 12:47 PDT] - US-051
+- Enabled read-only `/proc/self` metadata access in the kernel-mounted Node runtime defaults so sandboxed Node processes can inspect `/proc/self/cwd`, `/proc/self/exe`, `/proc/self/environ`, and `/proc/self/fd` without opening general filesystem access.
+- Added a real `packages/secure-exec/tests/kernel/proc-introspection.test.ts` integration suite that runs sandboxed Node through `createNodeRuntime()` + `kernel.spawn('node', ...)` and verifies `/proc/self` cwd/exe/environ/fd behavior through the live kernel.
+- Updated repo guidance with the reusable procfs testing rule and verified the standalone sandbox-escape expectation still holds for `NodeRuntime` outside the kernel path.
+- Files changed: `CLAUDE.md`, `packages/nodejs/src/kernel-runtime.ts`, `packages/secure-exec/tests/kernel/proc-introspection.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Kernel-mounted Node and standalone NodeRuntime intentionally differ here: kernel-mounted Node should expose read-only `/proc/self` metadata, while standalone sandbox-escape coverage should keep `/proc/self/environ` denied unless that capability model is changed explicitly.
+  - `kernel.spawn('node', ...)` currently delivers stdout through both the process-context and driver-process callbacks, so kernel integration tests that parse structured output should read the last emitted line rather than assuming a single stdout chunk.
+  - `/proc/self/fd` integration coverage does not need extra filesystem permissions; verifying the always-open stdio descriptors (`0`, `1`, `2`) is enough to prove the live procfs listing and fd symlink path.
 ---

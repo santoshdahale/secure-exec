@@ -42,7 +42,9 @@ export interface NodeRuntimeOptions {
   moduleAccessPaths?: string[];
   /**
    * Bridge permissions for isolate processes. Defaults to allowAllChildProcess
-   * (fs/network/env deny-by-default). Use allowAll for full sandbox access.
+   * plus read-only `/proc/self` metadata access in kernel-mounted mode
+   * (other fs/network/env access deny-by-default). Use allowAll for full
+   * sandbox access.
    */
   permissions?: Partial<Permissions>;
   /**
@@ -51,6 +53,45 @@ export interface NodeRuntimeOptions {
    */
   bindings?: BindingTree;
 }
+
+const allowKernelProcSelfRead: Pick<Permissions, 'fs'> = {
+  fs: (request) => {
+    const rawPath = typeof request?.path === 'string' ? request.path : '';
+    const normalized = rawPath.length > 1 && rawPath.endsWith('/')
+      ? rawPath.slice(0, -1)
+      : rawPath || '/';
+
+    switch (request?.op) {
+      case 'read':
+      case 'readdir':
+      case 'readlink':
+      case 'stat':
+      case 'exists':
+        break;
+      default:
+        return {
+          allow: false,
+          reason: 'kernel procfs metadata is read-only',
+        };
+    }
+
+    if (
+      normalized === '/proc' ||
+      normalized === '/proc/self' ||
+      normalized.startsWith('/proc/self/') ||
+      normalized === '/proc/sys' ||
+      normalized === '/proc/sys/kernel' ||
+      normalized === '/proc/sys/kernel/hostname'
+    ) {
+      return { allow: true };
+    }
+
+    return {
+      allow: false,
+      reason: 'kernel-mounted Node only allows read-only /proc/self metadata by default',
+    };
+  },
+};
 
 /**
  * Create a Node.js RuntimeDriver that can be mounted into the kernel.
@@ -330,7 +371,10 @@ class NodeRuntimeDriver implements RuntimeDriver {
 
   constructor(options?: NodeRuntimeOptions) {
     this._memoryLimit = options?.memoryLimit ?? 128;
-    this._permissions = options?.permissions ?? { ...allowAllChildProcess };
+    this._permissions = options?.permissions ?? {
+      ...allowAllChildProcess,
+      ...allowKernelProcSelfRead,
+    };
     this._bindings = options?.bindings;
   }
 
