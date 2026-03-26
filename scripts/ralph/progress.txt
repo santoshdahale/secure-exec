@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- Kernel integration tests that need deferred-unlink or inode-lifetime semantics must build the kernel with `InMemoryFileSystem` and await `posixDirsReady`; the default `createTestKernel()` `TestFileSystem` does not exercise inode-backed FD lifetime behavior.
 - `packages/core/src/shared/in-memory-fs.ts` must keep POSIX directory metadata coherent end-to-end: directory `nlink` is `2 + immediate child directory count`, `readDir*()` synthesizes `.`/`..`, and symlink `lstat()` / typed readdir entries should report the symlink's own inode instead of `ino: 0`.
 - Tests that instantiate `createDefaultNetworkAdapter()` or `useDefaultNetwork` are legacy adapter compatibility coverage only; kernel-consolidation proof should live under `packages/secure-exec/tests/kernel/` and mount `createNodeRuntime()` into a real `Kernel`.
 - Story-critical Wasm C integration suites should keep local `skipIf` guards for missing binaries, but pair them with separate CI-only artifact-availability tests so missing `native/wasmvm/c/build/*` fixtures fail loudly instead of disappearing behind skips.
@@ -622,4 +623,14 @@
   - `WaitHandle(-1)` is the kernel’s indefinite-wait contract; negative timeouts should stay pending until an explicit wake instead of inheriting any internal guard timeout.
   - For blocking kernel behavior, the authoritative regression path is `KernelInterface` against a real spawned PID and owned FDs; manager-only unit tests do not prove the syscall-facing integration.
   - `fdPollWait(..., -1)` can be validated cheaply through a pipe FD in `kernel-integration.test.ts`, while the WasmVM `net-socket` poll smoke test confirms the worker RPC loop still honors the same indefinite wait semantics.
+---
+## [2026-03-26 11:49 PDT] - US-045
+- Added kernel integration coverage for deferred unlink on duplicated file descriptors by mounting a real inode-aware `InMemoryFileSystem` into the kernel and exercising `fdOpen`, `fdDup`, `fdDup2`, `fdRead`, `fdClose`, and `removeFile` through `KernelInterface`.
+- Documented the deferred-unlink contract at the FD lifecycle boundary so duplicated descriptors and forked/shared file descriptions explicitly keep inode data alive until the last shared close.
+- Verified with `pnpm vitest run packages/core/test/kernel/inode-table.test.ts packages/core/test/kernel/kernel-integration.test.ts` and `pnpm --filter @secure-exec/core check-types`.
+- Files changed: `.agent/contracts/kernel.md`, `packages/core/test/kernel/kernel-integration.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - The story’s core behavior was already implemented; the missing proof was kernel-level regression coverage for duplicated-descriptor close paths, especially `fdDup2` replacing the last reference to an already-unlinked inode.
+  - Deferred-unlink integration tests should verify both sides of the invariant: path lookups fail immediately after unlink, while reads through the surviving shared FD still succeed until the final close releases the inode.
+  - `fdDup` and `fdDup2` should not increase inode `openRefCount`; that counter tracks live open file descriptions, so duplicated FDs should keep the count at `1` until the shared description’s final reference closes.
 ---

@@ -11,6 +11,7 @@ import {
 	FILETYPE_CHARACTER_DEVICE,
 	O_CREAT,
 	O_EXCL,
+	O_RDONLY,
 	O_TRUNC,
 	O_WRONLY,
 } from "../../src/kernel/types.js";
@@ -20,6 +21,7 @@ import { filterEnv, wrapFileSystem } from "../../src/kernel/permissions.js";
 import { MAX_CANON, MAX_PTY_BUFFER_BYTES } from "../../src/kernel/pty.js";
 import { MAX_PIPE_BUFFER_BYTES } from "../../src/kernel/pipe-manager.js";
 import { createProcessScopedFileSystem } from "../../src/kernel/proc-layer.js";
+import { InMemoryFileSystem } from "../../src/shared/in-memory-fs.js";
 
 describe("kernel + MockRuntimeDriver integration", () => {
 	let kernel: Kernel;
@@ -27,6 +29,18 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	afterEach(async () => {
 		await kernel?.dispose();
 	});
+
+	async function createInodeKernelHarness(driver: MockRuntimeDriver) {
+		const filesystem = new InMemoryFileSystem();
+		const kernel = createKernel({ filesystem });
+		await (kernel as any).posixDirsReady;
+		await kernel.mount(driver);
+		return {
+			kernel,
+			filesystem,
+			ki: driver.kernelInterface!,
+		};
+	}
 
 	// -----------------------------------------------------------------------
 	// Basic mount / spawn / exec
@@ -1117,6 +1131,66 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			child.kill(9);
 			await parent.wait();
 			await child.wait();
+		});
+
+		it("unlink + dup keeps deferred inode data alive until the final shared FD closes", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			const { kernel: k, filesystem, ki } = await createInodeKernelHarness(driver);
+			kernel = k;
+
+			await filesystem.writeFile("/tmp/deferred-dup.txt", "hello");
+
+			const proc = kernel.spawn("proc", []);
+			const fd = ki.fdOpen(proc.pid, "/tmp/deferred-dup.txt", O_RDONLY);
+			const dupFd = ki.fdDup(proc.pid, fd);
+			const initial = await kernel.stat("/tmp/deferred-dup.txt");
+
+			expect(kernel.inodeTable.get(initial.ino)?.openRefCount).toBe(1);
+
+			await filesystem.removeFile("/tmp/deferred-dup.txt");
+			ki.fdClose(proc.pid, fd);
+
+			expect(await filesystem.exists("/tmp/deferred-dup.txt")).toBe(false);
+			expect(kernel.inodeTable.get(initial.ino)?.openRefCount).toBe(1);
+			expect(new TextDecoder().decode(await ki.fdRead(proc.pid, dupFd, 5))).toBe("hello");
+
+			ki.fdClose(proc.pid, dupFd);
+
+			expect(kernel.inodeTable.get(initial.ino)).toBeNull();
+			expect(() => filesystem.statByInode(initial.ino)).toThrow("inode");
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("fdDup2 releases an unlinked target inode when it drops the last shared reference", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			const { kernel: k, filesystem, ki } = await createInodeKernelHarness(driver);
+			kernel = k;
+
+			await filesystem.writeFile("/tmp/dup2-source.txt", "source");
+			await filesystem.writeFile("/tmp/dup2-target.txt", "target");
+
+			const proc = kernel.spawn("proc", []);
+			const sourceFd = ki.fdOpen(proc.pid, "/tmp/dup2-source.txt", O_RDONLY);
+			const targetFd = ki.fdOpen(proc.pid, "/tmp/dup2-target.txt", O_RDONLY);
+			const targetStat = await kernel.stat("/tmp/dup2-target.txt");
+
+			await filesystem.removeFile("/tmp/dup2-target.txt");
+			expect(kernel.inodeTable.get(targetStat.ino)?.openRefCount).toBe(1);
+
+			ki.fdDup2(proc.pid, sourceFd, targetFd);
+
+			expect(kernel.inodeTable.get(targetStat.ino)).toBeNull();
+			expect(() => filesystem.statByInode(targetStat.ino)).toThrow("inode");
+			expect(new TextDecoder().decode(await ki.fdRead(proc.pid, targetFd, 6))).toBe("source");
+
+			proc.kill(9);
+			await proc.wait();
 		});
 	});
 

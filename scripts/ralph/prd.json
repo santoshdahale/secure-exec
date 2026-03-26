@@ -966,7 +966,7 @@
         "Typecheck passes"
       ],
       "priority": 45,
-      "passes": false,
+      "passes": true,
       "notes": "This depends on inode allocation/refcount work from the VFS correctness story."
     },
     {

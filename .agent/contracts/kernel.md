@@ -115,6 +115,10 @@ The kernel FD table SHALL manage per-process file descriptor allocation with ref
 - **WHEN** a process duplicates an FD via `fdDup(pid, fd)`
 - **THEN** a new FD MUST be allocated pointing to the same FileDescription, and the FileDescription's `refCount` MUST be incremented
 
+#### Scenario: Duplicated FDs keep deferred-unlink inode data until the last shared close
+- **WHEN** a file's pathname is unlinked after `dup`, `dup2`, or fork creates additional FDs that share the same FileDescription
+- **THEN** the inode-backed data MUST remain accessible through the remaining shared FD references and MUST be released only when that shared FileDescription's final reference closes
+
 #### Scenario: Dup2 redirects target FD to source FileDescription
 - **WHEN** a process invokes `fdDup2(pid, oldFd, newFd)` and `newFd` is already open
 - **THEN** `newFd` MUST be closed first, then reassigned to share `oldFd`'s FileDescription with `refCount` incremented
