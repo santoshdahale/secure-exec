@@ -6945,6 +6945,56 @@
       "reason": "the legacy net.Stream constructor surface is still missing, so write-argument validation aborts before the vendored assertions run",
       "category": "unsupported-api"
     },
+    "test-http2-respond-file.js": {
+      "expected": "pass",
+      "reason": "bridged http2 respondWithFile now serves VFS-backed files with Node-matching response headers and body delivery",
+      "category": "implementation-gap"
+    },
+    "test-http2-respond-file-fd.js": {
+      "expected": "pass",
+      "reason": "bridged http2 respondWithFD now resolves sandbox file descriptors back to VFS paths and streams the expected file body",
+      "category": "implementation-gap"
+    },
+    "test-http2-respond-file-fd-invalid.js": {
+      "expected": "pass",
+      "reason": "invalid bridged http2 respondWithFD descriptors now surface the expected ERR_HTTP2_STREAM_ERROR and client reset path",
+      "category": "implementation-gap"
+    },
+    "test-http2-respond-file-fd-range.js": {
+      "expected": "pass",
+      "reason": "bridged http2 respondWithFD range responses now honor offset and length metadata for sandbox-backed files",
+      "category": "implementation-gap"
+    },
+    "test-http2-respond-file-range.js": {
+      "expected": "pass",
+      "reason": "bridged http2 respondWithFile range responses now preserve statCheck mutations and Node-matching content-length semantics",
+      "category": "implementation-gap"
+    },
+    "test-http2-respond-file-errors.js": {
+      "expected": "pass",
+      "reason": "bridged http2 respondWithFile validation now matches Node for invalid options, payload-forbidden statuses, and destroyed-stream errors",
+      "category": "implementation-gap"
+    },
+    "test-http2-respond-with-fd-errors.js": {
+      "expected": "pass",
+      "reason": "bridged http2 respondWithFile/respondWithFD nghttp2 error paths now share the sandbox NghttpError constructor and complete teardown without hanging",
+      "category": "implementation-gap"
+    },
+    "test-http2-respond-file-with-pipe.js": {
+      "expected": "pass",
+      "reason": "bridged http2 respondWithFile now handles FIFO-backed responses without regressing the vendored pipe helper flow",
+      "category": "implementation-gap"
+    },
+    "test-http2-respond-file-push.js": {
+      "expected": "pass",
+      "reason": "bridged http2 pushStream callbacks can now respondWithFD after the parent stream ends, matching Node's pushed-file flow",
+      "category": "implementation-gap"
+    },
+    "test-http2-respond-with-file-connection-abort.js": {
+      "expected": "pass",
+      "reason": "bridged http2 respondWithFile now falls back to a real host process.execPath and keeps borrowed session-socket destroy semantics aligned with Node",
+      "category": "implementation-gap"
+    },
     "test-http2-!(allow-http1|client-request-options-errors|client-setLocalWindowSize|error-order|goaway-delayed-request|goaway-opaquedata|misbehaving-flow-control|misbehaving-flow-control-paused|request-response-proto|respond-file-filehandle|server-push-stream|server-push-stream-errors-args|server-push-stream-head|server-setLocalWindowSize|session-settings|status-code-invalid|update-settings|window-size).js": {
       "reason": "outside the landed allowHTTP1, push/settings, request-response, and window-size slices, the remaining http2 suite still fails on compatibility wrappers, secure-session bootstrap, multiplexing/teardown, and file-response helper gaps",
       "category": "implementation-gap",

@@ -30,8 +30,19 @@ function getBindingState() {
 
 	const state = {
 		internalBinding(name) {
+			const http2Module = runtimeRequire?.("http2");
 			if (name === "js_stream") {
 				return { JSStream };
+			}
+			if (name === "http2" && http2Module) {
+				return {
+					constants: http2Module.constants ?? {},
+					Http2Stream: http2Module.Http2Stream,
+					nghttp2ErrorString:
+						typeof http2Module.nghttp2ErrorString === "function"
+							? http2Module.nghttp2ErrorString.bind(http2Module)
+							: (code) => `HTTP/2 error (${String(code)})`,
+				};
 			}
 			throw new Error(`Unsupported internal test binding: ${name}`);
 		},

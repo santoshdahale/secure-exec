@@ -342,6 +342,12 @@ Bridge-provided `http2` APIs SHALL preserve the basic client/server session and 
 - **AND** `stream.respond(...)`, `stream.write(...)`, and `stream.end(...)` MUST drive the corresponding host HTTP2 response headers/body/close lifecycle
 - **AND** the paired client stream MUST emit `'response'`, `'data'`, `'end'`, and `'close'` with Node-compatible ordering for basic request/response flows
 
+#### Scenario: Sandboxed code serves files through HTTP2 stream helpers
+- **WHEN** sandboxed code calls `stream.respondWithFile(...)` or `stream.respondWithFD(...)` for a file visible through the bridge filesystem or a bridged `FileHandle`
+- **THEN** the bridge MUST preserve Node-compatible validation for `offset`, `length`, destroyed-stream, and headers-sent cases
+- **AND** VFS-backed responses MUST preserve `statCheck(...)` mutations, range slicing, and auto/populated `content-length` and related headers closely enough for the vendored HTTP2 file-response fixtures
+- **AND** HTTP2 error-path shims exposed through `internal/test/binding` and `internal/http2/util` MUST share the same `Http2Stream`/`NghttpError` constructors used by the bridge so mocked nghttp2 failures exercise the real sandbox wrapper logic
+
 #### Scenario: Sandboxed code uses HTTP2 push, settings negotiation, or GOAWAY lifecycle
 - **WHEN** sandboxed code calls `stream.pushStream(...)`, `session.settings(...)`, `server.updateSettings(...)`, `session.goaway(...)`, or inspects `session.localSettings`, `session.remoteSettings`, and `pendingSettingsAck`
 - **THEN** the bridge MUST delegate push-stream creation, settings exchange, and GOAWAY delivery to the host `node:http2` session

@@ -4108,6 +4108,10 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 	const kernelHttp2ClientSessions = new Map<number, KernelHttp2ClientSessionState>();
 	const http2Sessions = new Map<number, http2.ClientHttp2Session | http2.ServerHttp2Session>();
 	const http2Streams = new Map<number, http2.ClientHttp2Stream | http2.ServerHttp2Stream>();
+	type PendingHttp2PushStreamState = {
+		operations: Array<(stream: http2.ServerHttp2Stream) => void>;
+	};
+	const pendingHttp2PushStreams = new Map<number, PendingHttp2PushStreamState>();
 	const http2ServerSessionIds = new WeakMap<http2.ServerHttp2Session, number>();
 	let nextHttp2SessionId = 1;
 	let nextHttp2StreamId = 1;
@@ -4662,6 +4666,34 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 		}));
 	};
 
+	const resolveHostHttp2FilePath = (filePath: string): string => {
+		// The sandbox defaults process.execPath to /usr/bin/node, but the host-side
+		// http2 respondWithFile helper needs a real host path when serving the Node binary.
+		if (filePath === "/usr/bin/node" && process.execPath) {
+			return process.execPath;
+		}
+		return filePath;
+	};
+
+	const withHttp2ServerStream = <T>(
+		streamId: number,
+		action: (stream: http2.ServerHttp2Stream) => T,
+		fallback: () => T,
+	): T => {
+		const stream = http2Streams.get(streamId) as http2.ServerHttp2Stream | undefined;
+		if (stream) {
+			return action(stream);
+		}
+		const pending = pendingHttp2PushStreams.get(streamId);
+		if (pending) {
+			pending.operations.push((resolvedStream) => {
+				action(resolvedStream);
+			});
+			return fallback();
+		}
+		throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
+	};
+
 	const attachHttp2ClientStreamListeners = (
 		streamId: number,
 		stream: http2.ClientHttp2Stream,
@@ -5145,23 +5177,25 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 		streamId: unknown,
 		headersJson: unknown,
 	): void => {
-		const stream = http2Streams.get(Number(streamId)) as http2.ServerHttp2Stream | undefined;
-		if (!stream) {
-			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
-		}
 		const headers = parseJsonWithLimit<Record<string, string | string[] | number>>(
 			"network.http2Stream.respond headers",
 			String(headersJson),
 			jsonLimit,
 		);
-		stream.respond(headers);
+		withHttp2ServerStream(
+			Number(streamId),
+			(stream) => {
+				stream.respond(headers);
+			},
+			() => undefined,
+		);
 	};
 
-	handlers[K.networkHttp2StreamPushStreamRaw] = async (
+	handlers[K.networkHttp2StreamPushStreamRaw] = (
 		streamId: unknown,
 		headersJson: unknown,
 		optionsJson: unknown,
-	): Promise<string> => {
+	): string => {
 		const stream = http2Streams.get(Number(streamId)) as http2.ServerHttp2Stream | undefined;
 		if (!stream) {
 			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
@@ -5176,40 +5210,39 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 			String(optionsJson),
 			jsonLimit,
 		);
-		return await new Promise<string>((resolve, reject) => {
-			try {
-				stream.pushStream(
-					headers,
-					options as http2.StreamPriorityOptions,
-					(error, pushStream, pushHeaders) => {
-						if (error) {
-							resolve(JSON.stringify({
-								error: JSON.stringify({
-									message: error.message,
-									name: error.name,
-									code: (error as { code?: unknown }).code,
-								}),
-							}));
-							return;
-						}
-						if (!pushStream) {
-							reject(new Error("HTTP/2 push stream callback returned no stream"));
-							return;
-						}
-						const pushStreamId = nextHttp2StreamId++;
-						http2Streams.set(pushStreamId, pushStream);
-						pushStream.on("close", () => {
-							http2Streams.delete(pushStreamId);
-						});
-						resolve(JSON.stringify({
-							streamId: pushStreamId,
-							headers: JSON.stringify(normalizeHttp2EventHeaders(pushHeaders ?? {})),
-						}));
-					},
-				);
-			} catch (error) {
-				reject(error);
-			}
+		const pushStreamId = nextHttp2StreamId++;
+		pendingHttp2PushStreams.set(pushStreamId, {
+			operations: [],
+		});
+		stream.pushStream(
+			headers,
+			options as http2.StreamPriorityOptions,
+			(error, pushStream, pushHeaders) => {
+				const pending = pendingHttp2PushStreams.get(pushStreamId);
+				if (error) {
+					pendingHttp2PushStreams.delete(pushStreamId);
+					emitHttp2SerializedError("serverStreamError", Number(streamId), error);
+					return;
+				}
+				if (!pushStream) {
+					pendingHttp2PushStreams.delete(pushStreamId);
+					return;
+				}
+				http2Streams.set(pushStreamId, pushStream);
+				pushStream.on("close", () => {
+					http2Streams.delete(pushStreamId);
+					pendingHttp2PushStreams.delete(pushStreamId);
+				});
+				for (const operation of pending?.operations ?? []) {
+					operation(pushStream);
+				}
+				pendingHttp2PushStreams.delete(pushStreamId);
+				void pushHeaders;
+			},
+		);
+		return JSON.stringify({
+			streamId: pushStreamId,
+			headers: JSON.stringify(normalizeHttp2EventHeaders(headers)),
 		});
 	};
 
@@ -5217,26 +5250,46 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 		streamId: unknown,
 		dataBase64: unknown,
 	): boolean => {
-		const stream = http2Streams.get(Number(streamId));
-		if (!stream) {
-			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
-		}
-		return stream.write(Buffer.from(String(dataBase64), "base64"));
+		return withHttp2ServerStream(
+			Number(streamId),
+			(stream) => stream.write(Buffer.from(String(dataBase64), "base64")),
+			() => true,
+		);
 	};
 
 	handlers[K.networkHttp2StreamEndRaw] = (
 		streamId: unknown,
 		dataBase64: unknown,
 	): void => {
-		const stream = http2Streams.get(Number(streamId));
-		if (!stream) {
-			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
-		}
-		if (typeof dataBase64 === "string" && dataBase64.length > 0) {
-			stream.end(Buffer.from(dataBase64, "base64"));
-			return;
-		}
-		stream.end();
+		withHttp2ServerStream(
+			Number(streamId),
+			(stream) => {
+				if (typeof dataBase64 === "string" && dataBase64.length > 0) {
+					stream.end(Buffer.from(dataBase64, "base64"));
+					return;
+				}
+				stream.end();
+			},
+			() => undefined,
+		);
+	};
+
+	handlers[K.networkHttp2StreamCloseRaw] = (
+		streamId: unknown,
+		rstCode: unknown,
+	): void => {
+		withHttp2ServerStream(
+			Number(streamId),
+			(stream) => {
+				if (typeof (stream as { close?: (code?: number) => void }).close !== "function") {
+					throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
+				}
+				(stream as { close: (code?: number) => void }).close(
+					typeof rstCode === "number" ? Number(rstCode) : undefined,
+				);
+			},
+			() => undefined,
+		);
 	};
 
 	handlers[K.networkHttp2StreamPauseRaw] = (streamId: unknown): void => {
@@ -5253,10 +5306,6 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 		headersJson: unknown,
 		optionsJson: unknown,
 	): void => {
-		const stream = http2Streams.get(Number(streamId)) as http2.ServerHttp2Stream | undefined;
-		if (!stream) {
-			throw new Error(`HTTP/2 stream ${String(streamId)} not found`);
-		}
 		const headers = parseJsonWithLimit<Record<string, unknown>>(
 			"network.http2Stream.respondWithFile headers",
 			String(headersJson),
@@ -5267,10 +5316,16 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 			String(optionsJson),
 			jsonLimit,
 		);
-		stream.respondWithFile(
-			String(filePath),
-			headers as http2.OutgoingHttpHeaders,
-			options as http2.ServerStreamFileResponseOptionsWithError,
+		withHttp2ServerStream(
+			Number(streamId),
+			(stream) => {
+				stream.respondWithFile(
+					resolveHostHttp2FilePath(String(filePath)),
+					headers as http2.OutgoingHttpHeaders,
+					options as http2.ServerStreamFileResponseOptionsWithError,
+				);
+			},
+			() => undefined,
 		);
 	};
 

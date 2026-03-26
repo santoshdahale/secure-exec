@@ -93,6 +93,7 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	networkHttp2StreamPushStreamRaw: "_networkHttp2StreamPushStreamRaw",
 	networkHttp2StreamWriteRaw: "_networkHttp2StreamWriteRaw",
 	networkHttp2StreamEndRaw: "_networkHttp2StreamEndRaw",
+	networkHttp2StreamCloseRaw: "_networkHttp2StreamCloseRaw",
 	networkHttp2StreamPauseRaw: "_networkHttp2StreamPauseRaw",
 	networkHttp2StreamResumeRaw: "_networkHttp2StreamResumeRaw",
 	networkHttp2StreamRespondWithFileRaw: "_networkHttp2StreamRespondWithFileRaw",
@@ -412,7 +413,7 @@ export type NetworkHttp2StreamRespondRawBridgeRef = BridgeApplySyncRef<
 	[number, string],
 	void
 >;
-export type NetworkHttp2StreamPushStreamRawBridgeRef = BridgeApplySyncPromiseRef<
+export type NetworkHttp2StreamPushStreamRawBridgeRef = BridgeApplySyncRef<
 	[number, string, string],
 	string
 >;
@@ -422,6 +423,10 @@ export type NetworkHttp2StreamWriteRawBridgeRef = BridgeApplySyncRef<
 >;
 export type NetworkHttp2StreamEndRawBridgeRef = BridgeApplySyncRef<
 	[number, string | null],
+	void
+>;
+export type NetworkHttp2StreamCloseRawBridgeRef = BridgeApplySyncRef<
+	[number, number | null],
 	void
 >;
 export type NetworkHttp2StreamPauseRawBridgeRef = BridgeApplySyncRef<[number], void>;

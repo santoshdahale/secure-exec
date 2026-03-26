@@ -5,13 +5,13 @@
   "generatedAt": "2026-03-26",
   "summary": {
     "total": 3532,
-    "pass": 1161,
-    "genuinePass": 1111,
+    "pass": 1171,
+    "genuinePass": 1121,
     "vacuousPass": 50,
-    "fail": 2258,
+    "fail": 2248,
     "skip": 113,
-    "passRate": "32.9%",
-    "genuinePassRate": "31.5%"
+    "passRate": "33.2%",
+    "genuinePassRate": "31.7%"
   },
   "modules": {
     "abortcontroller": {
@@ -625,9 +625,9 @@
     },
     "http2": {
       "total": 256,
-      "pass": 18,
+      "pass": 28,
       "vacuousPass": 0,
-      "fail": 238,
+      "fail": 228,
       "skip": 0
     },
     "https": {
@@ -1472,7 +1472,7 @@
     }
   },
   "categories": {
-    "implementation-gap": 923,
+    "implementation-gap": 913,
     "native-addon": 3,
     "requires-exec-path": 200,
     "requires-v8-flags": 236,

@@ -732,7 +732,7 @@
         "Typecheck passes"
       ],
       "priority": 31.8,
-      "passes": false,
+      "passes": true,
       "notes": "Current exact red vendored files for this bucket include test-http2-respond-file.js, test-http2-respond-file-fd.js, test-http2-respond-file-fd-invalid.js, test-http2-respond-file-fd-range.js, test-http2-respond-file-range.js, test-http2-respond-file-errors.js, test-http2-respond-with-fd-errors.js, test-http2-respond-file-filehandle.js, test-http2-respond-file-with-pipe.js, test-http2-respond-file-push.js, and test-http2-respond-with-file-connection-abort.js."
     },
     {

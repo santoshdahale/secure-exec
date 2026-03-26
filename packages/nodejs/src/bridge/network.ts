@@ -30,6 +30,7 @@ import type {
 	NetworkHttp2SessionWaitRawBridgeRef,
 	NetworkHttp2ServerRespondRawBridgeRef,
 	NetworkHttp2StreamEndRawBridgeRef,
+	NetworkHttp2StreamCloseRawBridgeRef,
 	NetworkHttp2StreamPauseRawBridgeRef,
 	NetworkHttp2StreamResumeRawBridgeRef,
 	NetworkHttp2StreamRespondWithFileRawBridgeRef,
@@ -156,6 +157,10 @@ declare const _networkHttp2StreamWriteRaw:
 
 declare const _networkHttp2StreamEndRaw:
   | NetworkHttp2StreamEndRawBridgeRef
+  | undefined;
+
+declare const _networkHttp2StreamCloseRaw:
+  | NetworkHttp2StreamCloseRawBridgeRef
   | undefined;
 
 declare const _networkHttp2StreamPauseRaw:
@@ -5467,8 +5472,13 @@ class Http2SocketProxy extends Http2EventEmitter {
   remoteFamily = "IPv4";
   servername?: string;
   alpnProtocol: string | false = false;
+  readable = true;
+  writable = true;
   destroyed = false;
+  _bridgeReadPollTimer: ReturnType<typeof setTimeout> | null = null;
+  _loopbackServer: null = null;
   private _onDestroy?: () => void;
+  private _destroyCallbackInvoked = false;
   constructor(
     state?: SerializedHttp2SocketState,
     onDestroy?: () => void,
@@ -5490,8 +5500,28 @@ class Http2SocketProxy extends Http2EventEmitter {
     this.servername = state.servername;
     this.alpnProtocol = state.alpnProtocol ?? this.alpnProtocol;
   }
+  _clearTimeoutTimer(): void {
+    // Borrowed net.Socket destroy paths call into this hook.
+  }
+  _emitNet(event: string, error?: Error): void {
+    if (event === "error" && error) {
+      this.emit("error", error);
+      return;
+    }
+    if (event === "close") {
+      if (!this._destroyCallbackInvoked) {
+        this._destroyCallbackInvoked = true;
+        queueMicrotask(() => {
+          this._onDestroy?.();
+        });
+      }
+      this.emit("close");
+    }
+  }
   end(): this {
     this.destroyed = true;
+    this.readable = false;
+    this.writable = false;
     this.emit("close");
     return this;
   }
@@ -5500,8 +5530,9 @@ class Http2SocketProxy extends Http2EventEmitter {
       return this;
     }
     this.destroyed = true;
-    this._onDestroy?.();
-    this.emit("close");
+    this.readable = false;
+    this.writable = false;
+    this._emitNet("close");
     return this;
   }
 }
@@ -5531,6 +5562,215 @@ function createHttp2SettingTypeError(setting: string, value: unknown): TypeError
   ) as TypeError & { code: string };
   error.code = "ERR_HTTP2_INVALID_SETTING_VALUE";
   return error;
+}
+
+const HTTP2_INTERNAL_BINDING_CONSTANTS = {
+  NGHTTP2_NO_ERROR: 0,
+  NGHTTP2_PROTOCOL_ERROR: 1,
+  NGHTTP2_INTERNAL_ERROR: 2,
+  NGHTTP2_FLOW_CONTROL_ERROR: 3,
+  NGHTTP2_SETTINGS_TIMEOUT: 4,
+  NGHTTP2_STREAM_CLOSED: 5,
+  NGHTTP2_FRAME_SIZE_ERROR: 6,
+  NGHTTP2_REFUSED_STREAM: 7,
+  NGHTTP2_CANCEL: 8,
+  NGHTTP2_COMPRESSION_ERROR: 9,
+  NGHTTP2_CONNECT_ERROR: 10,
+  NGHTTP2_ENHANCE_YOUR_CALM: 11,
+  NGHTTP2_INADEQUATE_SECURITY: 12,
+  NGHTTP2_HTTP_1_1_REQUIRED: 13,
+  NGHTTP2_NV_FLAG_NONE: 0,
+  NGHTTP2_NV_FLAG_NO_INDEX: 1,
+  NGHTTP2_ERR_DEFERRED: -508,
+  NGHTTP2_ERR_STREAM_ID_NOT_AVAILABLE: -509,
+  NGHTTP2_ERR_STREAM_CLOSED: -510,
+  NGHTTP2_ERR_INVALID_ARGUMENT: -501,
+  NGHTTP2_ERR_FRAME_SIZE_ERROR: -522,
+  NGHTTP2_ERR_NOMEM: -901,
+  NGHTTP2_FLAG_NONE: 0,
+  NGHTTP2_FLAG_END_STREAM: 1,
+  NGHTTP2_FLAG_END_HEADERS: 4,
+  NGHTTP2_FLAG_ACK: 1,
+  NGHTTP2_FLAG_PADDED: 8,
+  NGHTTP2_FLAG_PRIORITY: 32,
+  NGHTTP2_DEFAULT_WEIGHT: 16,
+  NGHTTP2_SETTINGS_HEADER_TABLE_SIZE: 1,
+  NGHTTP2_SETTINGS_ENABLE_PUSH: 2,
+  NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS: 3,
+  NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE: 4,
+  NGHTTP2_SETTINGS_MAX_FRAME_SIZE: 5,
+  NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE: 6,
+  NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL: 8,
+} as const;
+
+const HTTP2_NGHTTP2_ERROR_MESSAGES: Record<number, string> = {
+  [HTTP2_INTERNAL_BINDING_CONSTANTS.NGHTTP2_ERR_DEFERRED]: "Data deferred",
+  [HTTP2_INTERNAL_BINDING_CONSTANTS.NGHTTP2_ERR_STREAM_ID_NOT_AVAILABLE]: "Stream ID is not available",
+  [HTTP2_INTERNAL_BINDING_CONSTANTS.NGHTTP2_ERR_STREAM_CLOSED]: "Stream was already closed or invalid",
+  [HTTP2_INTERNAL_BINDING_CONSTANTS.NGHTTP2_ERR_INVALID_ARGUMENT]: "Invalid argument",
+  [HTTP2_INTERNAL_BINDING_CONSTANTS.NGHTTP2_ERR_FRAME_SIZE_ERROR]: "Frame size error",
+  [HTTP2_INTERNAL_BINDING_CONSTANTS.NGHTTP2_ERR_NOMEM]: "Out of memory",
+};
+
+class NghttpError extends Error {
+  code = "ERR_HTTP2_ERROR";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "Error";
+  }
+}
+
+function nghttp2ErrorString(code: number): string {
+  return HTTP2_NGHTTP2_ERROR_MESSAGES[code] ?? `HTTP/2 error (${String(code)})`;
+}
+
+function createHttp2InvalidArgValueError(property: string, value: unknown): TypeError & { code: string } {
+  return createTypeErrorWithCode(
+    `The property 'options.${property}' is invalid. Received ${formatHttp2InvalidValue(value)}`,
+    "ERR_INVALID_ARG_VALUE",
+  );
+}
+
+function formatHttp2InvalidValue(value: unknown): string {
+  if (typeof value === "function") {
+    return `[Function${value.name ? `: ${value.name}` : ": function"}]`;
+  }
+  if (typeof value === "symbol") {
+    return value.toString();
+  }
+  if (Array.isArray(value)) {
+    return "[]";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "object") {
+    return "{}";
+  }
+  return String(value);
+}
+
+function createHttp2PayloadForbiddenError(statusCode: number): Error & { code: string } {
+  return createHttp2Error(
+    "ERR_HTTP2_PAYLOAD_FORBIDDEN",
+    `Responses with ${String(statusCode)} status must not have a payload`,
+  );
+}
+
+type Http2BridgeStatPayload = {
+  mode: number;
+  size: number;
+  atimeMs?: number;
+  mtimeMs?: number;
+  ctimeMs?: number;
+  birthtimeMs?: number;
+};
+
+type Http2BridgeStat = {
+  size: number;
+  mode: number;
+  atimeMs: number;
+  mtimeMs: number;
+  ctimeMs: number;
+  birthtimeMs: number;
+  atime: Date;
+  mtime: Date;
+  ctime: Date;
+  birthtime: Date;
+  isFile(): boolean;
+  isDirectory(): boolean;
+  isFIFO(): boolean;
+  isSocket(): boolean;
+  isSymbolicLink(): boolean;
+};
+
+type Http2FileResponseOptions = {
+  offset: number;
+  length: number | undefined;
+  statCheck?: (stat: Http2BridgeStat, headers: Record<string, unknown>, options: { offset: number; length: number }) => void;
+  onError?: (error: Error) => void;
+};
+
+const S_IFMT = 0o170000;
+const S_IFDIR = 0o040000;
+const S_IFREG = 0o100000;
+const S_IFIFO = 0o010000;
+const S_IFSOCK = 0o140000;
+const S_IFLNK = 0o120000;
+
+function createHttp2BridgeStat(stat: Http2BridgeStatPayload): Http2BridgeStat {
+  const atimeMs = stat.atimeMs ?? 0;
+  const mtimeMs = stat.mtimeMs ?? atimeMs;
+  const ctimeMs = stat.ctimeMs ?? mtimeMs;
+  const birthtimeMs = stat.birthtimeMs ?? ctimeMs;
+  const fileType = stat.mode & S_IFMT;
+  return {
+    size: stat.size,
+    mode: stat.mode,
+    atimeMs,
+    mtimeMs,
+    ctimeMs,
+    birthtimeMs,
+    atime: new Date(atimeMs),
+    mtime: new Date(mtimeMs),
+    ctime: new Date(ctimeMs),
+    birthtime: new Date(birthtimeMs),
+    isFile: () => fileType === S_IFREG,
+    isDirectory: () => fileType === S_IFDIR,
+    isFIFO: () => fileType === S_IFIFO,
+    isSocket: () => fileType === S_IFSOCK,
+    isSymbolicLink: () => fileType === S_IFLNK,
+  };
+}
+
+function normalizeHttp2FileResponseOptions(options?: Record<string, unknown>): Http2FileResponseOptions {
+  const normalized = options ?? {};
+  const offset = normalized.offset;
+  if (offset !== undefined && (typeof offset !== "number" || !Number.isFinite(offset))) {
+    throw createHttp2InvalidArgValueError("offset", offset);
+  }
+  const length = normalized.length;
+  if (length !== undefined && (typeof length !== "number" || !Number.isFinite(length))) {
+    throw createHttp2InvalidArgValueError("length", length);
+  }
+  const statCheck = normalized.statCheck;
+  if (statCheck !== undefined && typeof statCheck !== "function") {
+    throw createHttp2InvalidArgValueError("statCheck", statCheck);
+  }
+  const onError = normalized.onError;
+  return {
+    offset: offset === undefined ? 0 : Math.max(0, Math.trunc(offset)),
+    length:
+      typeof length === "number"
+        ? Math.trunc(length)
+        : undefined,
+    statCheck: typeof statCheck === "function" ? statCheck as Http2FileResponseOptions["statCheck"] : undefined,
+    onError: typeof onError === "function" ? onError as Http2FileResponseOptions["onError"] : undefined,
+  };
+}
+
+function sliceHttp2FileBody(body: Buffer, offset: number, length: number | undefined): Buffer {
+  const safeOffset = Math.max(0, Math.min(offset, body.length));
+  if (length === undefined || length < 0) {
+    return body.subarray(safeOffset);
+  }
+  return body.subarray(safeOffset, Math.min(body.length, safeOffset + length));
+}
+
+class Http2Stream {
+  constructor(private readonly _streamId: number) {}
+
+  respond(headers?: Http2HeadersRecord): number {
+    if (typeof _networkHttp2StreamRespondRaw === "undefined") {
+      throw new Error("http2 server stream respond bridge is not available");
+    }
+    _networkHttp2StreamRespondRaw.applySync(undefined, [
+      this._streamId,
+      serializeHttp2Headers(headers),
+    ]);
+    return 0;
+  }
 }
 
 const DEFAULT_HTTP2_SETTINGS: Http2SettingsRecord = {
@@ -6071,7 +6311,10 @@ function getCompleteUtf8PrefixLength(buffer: Buffer): number {
 
 class ServerHttp2Stream extends Http2EventEmitter {
   private _streamId: number;
+  private _binding: Http2Stream;
   private _responded = false;
+  private _endQueued = false;
+  private _pendingSyntheticErrorSuppressions = 0;
   private _requestHeaders?: Http2HeadersRecord;
   private _isPushStream: boolean;
   session: Http2Session;
@@ -6093,6 +6336,7 @@ class ServerHttp2Stream extends Http2EventEmitter {
   ) {
     super();
     this._streamId = streamId;
+    this._binding = new Http2Stream(streamId);
     this.session = session;
     this._requestHeaders = requestHeaders;
     this._isPushStream = isPushStream;
@@ -6105,12 +6349,56 @@ class ServerHttp2Stream extends Http2EventEmitter {
       ended: requestHeaders?.[":method"] === "HEAD",
     };
   }
-  respond(headers?: Http2HeadersRecord): void {
-    if (typeof _networkHttp2StreamRespondRaw === "undefined") {
-      throw new Error("http2 server stream respond bridge is not available");
+  private _closeWithCode(code: number): void {
+    this.rstCode = code;
+    _networkHttp2StreamCloseRaw?.applySync(undefined, [this._streamId, code]);
+  }
+  private _markSyntheticClose(): void {
+    this.destroyed = true;
+    this.readable = false;
+    this.writable = false;
+  }
+  _shouldSuppressHostError(): boolean {
+    if (this._pendingSyntheticErrorSuppressions <= 0) {
+      return false;
     }
+    this._pendingSyntheticErrorSuppressions -= 1;
+    return true;
+  }
+  private _emitNghttp2Error(errorCode: number): void {
+    const error = new NghttpError(nghttp2ErrorString(errorCode));
+    this._pendingSyntheticErrorSuppressions += 1;
+    this._markSyntheticClose();
+    this.emit("error", error);
+    this._closeWithCode(HTTP2_INTERNAL_BINDING_CONSTANTS.NGHTTP2_INTERNAL_ERROR);
+  }
+  private _emitInternalStreamError(): void {
+    const error = createHttp2Error(
+      "ERR_HTTP2_STREAM_ERROR",
+      "Stream closed with error code NGHTTP2_INTERNAL_ERROR",
+    );
+    this._pendingSyntheticErrorSuppressions += 1;
+    this._markSyntheticClose();
+    this.emit("error", error);
+    this._closeWithCode(HTTP2_INTERNAL_BINDING_CONSTANTS.NGHTTP2_INTERNAL_ERROR);
+  }
+  private _submitResponse(headers?: Http2HeadersRecord): boolean {
     this._responded = true;
-    _networkHttp2StreamRespondRaw.applySync(undefined, [this._streamId, serializeHttp2Headers(headers)]);
+    const ngError = this._binding.respond(headers);
+    if (typeof ngError === "number" && ngError !== 0) {
+      this._emitNghttp2Error(ngError);
+      return false;
+    }
+    return true;
+  }
+  respond(headers?: Http2HeadersRecord): void {
+    if (this.destroyed) {
+      throw createHttp2Error("ERR_HTTP2_INVALID_STREAM", "The stream has been destroyed");
+    }
+    if (this._responded) {
+      throw createHttp2Error("ERR_HTTP2_HEADERS_SENT", "Response has already been initiated.");
+    }
+    this._submitResponse(headers);
   }
   pushStream(
     headers: Http2HeadersRecord,
@@ -6137,7 +6425,7 @@ class ServerHttp2Stream extends Http2EventEmitter {
       optionsOrCallback && typeof optionsOrCallback === "object" && !Array.isArray(optionsOrCallback)
         ? optionsOrCallback
         : {};
-    const resultJson = _networkHttp2StreamPushStreamRaw.applySyncPromise(
+    const resultJson = _networkHttp2StreamPushStreamRaw.applySync(
       undefined,
       [
         this._streamId,
@@ -6150,20 +6438,18 @@ class ServerHttp2Stream extends Http2EventEmitter {
       streamId?: number;
       headers?: string;
     };
-    queueMicrotask(() => {
-      if (result.error) {
-        callback(parseHttp2ErrorPayload(result.error));
-        return;
-      }
-      const pushStream = new ServerHttp2Stream(
-        Number(result.streamId),
-        this.session,
-        parseHttp2Headers(result.headers),
-        true,
-      );
-      http2Streams.set(Number(result.streamId), pushStream);
-      callback(null, pushStream, parseHttp2Headers(result.headers));
-    });
+    if (result.error) {
+      callback(parseHttp2ErrorPayload(result.error));
+      return;
+    }
+    const pushStream = new ServerHttp2Stream(
+      Number(result.streamId),
+      this.session,
+      parseHttp2Headers(result.headers),
+      true,
+    );
+    http2Streams.set(Number(result.streamId), pushStream);
+    callback(null, pushStream, parseHttp2Headers(result.headers));
   }
   write(data: unknown): boolean {
     if (this._writableState.ended) {
@@ -6184,7 +6470,12 @@ class ServerHttp2Stream extends Http2EventEmitter {
   }
   end(data?: unknown): void {
     if (!this._responded) {
-      this.respond({ ":status": 200 });
+      if (!this._submitResponse({ ":status": 200 })) {
+        return;
+      }
+    }
+    if (this._endQueued) {
+      return;
     }
     if (typeof _networkHttp2StreamEndRaw === "undefined") {
       throw new Error("http2 server stream end bridge is not available");
@@ -6195,12 +6486,18 @@ class ServerHttp2Stream extends Http2EventEmitter {
       const buffer = Buffer.isBuffer(data)
         ? data
         : typeof data === "string"
-          ? Buffer.from(data)
-          : Buffer.from(data as Uint8Array);
+        ? Buffer.from(data)
+        : Buffer.from(data as Uint8Array);
       encoded = buffer.toString("base64");
     }
-    _networkHttp2StreamEndRaw.applySync(undefined, [this._streamId, encoded]);
-    this._writableState.ended = true;
+    this._endQueued = true;
+    queueMicrotask(() => {
+      if (!this._endQueued || this.destroyed) {
+        return;
+      }
+      this._endQueued = false;
+      _networkHttp2StreamEndRaw.applySync(undefined, [this._streamId, encoded]);
+    });
   }
   pause(): this {
     this._readableState.flowing = false;
@@ -6217,18 +6514,44 @@ class ServerHttp2Stream extends Http2EventEmitter {
     headers?: Record<string, unknown>,
     options?: Record<string, unknown>
   ): void {
+    if (this.destroyed) {
+      throw createHttp2Error("ERR_HTTP2_INVALID_STREAM", "The stream has been destroyed");
+    }
+    if (this._responded) {
+      throw createHttp2Error("ERR_HTTP2_HEADERS_SENT", "Response has already been initiated.");
+    }
+    const normalizedOptions = normalizeHttp2FileResponseOptions(options);
+    const responseHeaders = { ...(headers ?? {}) };
+    const statusCode = responseHeaders[":status"];
+    if (statusCode === 204 || statusCode === 205 || statusCode === 304) {
+      throw createHttp2PayloadForbiddenError(Number(statusCode));
+    }
+
     try {
+      const statJson = _fs.stat.applySyncPromise(undefined, [path]);
       const bodyBase64 = _fs.readFileBinary.applySyncPromise(undefined, [path]);
+      const stat = createHttp2BridgeStat(JSON.parse(statJson) as Http2BridgeStatPayload);
+      const callbackOptions = {
+        offset: normalizedOptions.offset,
+        length: normalizedOptions.length ?? Math.max(0, stat.size - normalizedOptions.offset),
+      };
+      normalizedOptions.statCheck?.(stat, responseHeaders, callbackOptions);
       const body = Buffer.from(bodyBase64, "base64");
-      this._responded = true;
-      this.respond({
+      const slicedBody = sliceHttp2FileBody(
+        body,
+        normalizedOptions.offset,
+        normalizedOptions.length,
+      );
+      if (responseHeaders["content-length"] === undefined) {
+        responseHeaders["content-length"] = slicedBody.byteLength;
+      }
+      if (!this._submitResponse({
         ":status": 200,
-        ...(headers ?? {}),
-      });
-      this.end(body);
-      queueMicrotask(() => {
-        this.session.close();
-      });
+        ...(responseHeaders as Http2HeadersRecord),
+      })) {
+        return;
+      }
+      this.end(slicedBody);
       return;
     } catch {
       // Fall back to the host http2 helper when the path is not available through the VFS bridge.
@@ -6260,9 +6583,21 @@ class ServerHttp2Stream extends Http2EventEmitter {
           : NaN;
     const path = Number.isFinite(fd) ? _fdGetPath.applySync(undefined, [fd]) : null;
     if (!path) {
-      throw new Error("Invalid file descriptor for respondWithFD");
+      this._emitInternalStreamError();
+      return;
     }
     this.respondWithFile(path, headers, options);
+  }
+  destroy(error?: Error): this {
+    if (this.destroyed) {
+      return this;
+    }
+    this.destroyed = true;
+    if (error) {
+      this.emit("error", error);
+    }
+    this._closeWithCode(HTTP2_INTERNAL_BINDING_CONSTANTS.NGHTTP2_CANCEL);
+    return this;
   }
   _emitData(dataBase64?: string): void {
     if (!dataBase64) {
@@ -6476,7 +6811,11 @@ class Http2Session extends Http2EventEmitter {
   constructor(sessionId: number, socketState?: SerializedHttp2SocketState) {
     super();
     this._sessionId = sessionId;
-    this.socket = new Http2SocketProxy(socketState, () => this.destroy());
+    this.socket = new Http2SocketProxy(socketState, () => {
+      setTimeout(() => {
+        this.destroy();
+      }, 0);
+    });
     (this as Record<PropertyKey, unknown>)[HTTP2_K_SOCKET] = this.socket;
   }
   _retain(): void {
@@ -7120,6 +7459,12 @@ function http2Dispatch(
   if (kind === "serverStreamError") {
     const stream = http2Streams.get(id);
     if (!stream) return;
+    if (
+      typeof (stream as { _shouldSuppressHostError?: unknown })._shouldSuppressHostError === "function" &&
+      (stream as ServerHttp2Stream)._shouldSuppressHostError()
+    ) {
+      return;
+    }
     stream.emit("error", parseHttp2ErrorPayload(data));
     return;
   }
@@ -7242,6 +7587,9 @@ function onHttp2Dispatch(_eventType: string, payload?: unknown): void {
 export const http2 = {
   Http2ServerRequest,
   Http2ServerResponse,
+  Http2Stream,
+  NghttpError,
+  nghttp2ErrorString,
   constants: {
     HTTP2_HEADER_METHOD: ":method",
     HTTP2_HEADER_PATH: ":path",
@@ -7250,19 +7598,14 @@ export const http2 = {
     HTTP2_HEADER_STATUS: ":status",
     HTTP2_HEADER_CONTENT_TYPE: "content-type",
     HTTP2_HEADER_CONTENT_LENGTH: "content-length",
+    HTTP2_HEADER_LAST_MODIFIED: "last-modified",
     HTTP2_HEADER_ACCEPT: "accept",
     HTTP2_HEADER_ACCEPT_ENCODING: "accept-encoding",
     HTTP2_METHOD_GET: "GET",
     HTTP2_METHOD_POST: "POST",
     HTTP2_METHOD_PUT: "PUT",
     HTTP2_METHOD_DELETE: "DELETE",
-    NGHTTP2_NO_ERROR: 0,
-    NGHTTP2_PROTOCOL_ERROR: 1,
-    NGHTTP2_INTERNAL_ERROR: 2,
-    NGHTTP2_FRAME_SIZE_ERROR: 6,
-    NGHTTP2_FLOW_CONTROL_ERROR: 3,
-    NGHTTP2_REFUSED_STREAM: 7,
-    NGHTTP2_CANCEL: 8,
+    ...HTTP2_INTERNAL_BINDING_CONSTANTS,
     DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE: 65535,
   } as Record<string, string | number>,
   getDefaultSettings(): Http2SettingsRecord {

@@ -13,10 +13,10 @@ icon: "chart-bar"
 | Node.js version | 22.14.0 |
 | Source | v22.14.0 (test/parallel/) |
 | Total tests | 3532 |
-| Passing (genuine) | 1111 (31.5%) |
+| Passing (genuine) | 1121 (31.7%) |
 | Passing (vacuous self-skip) | 50 |
-| Passing (total) | 1161 (32.9%) |
-| Expected fail | 2258 |
+| Passing (total) | 1171 (33.2%) |
+| Expected fail | 2248 |
 | Skip | 113 |
 | Last updated | 2026-03-26 |
 
@@ -24,7 +24,7 @@ icon: "chart-bar"
 
 | Category | Tests |
 | --- | --- |
-| implementation-gap | 923 |
+| implementation-gap | 913 |
 | unsupported-module | 755 |
 | requires-v8-flags | 236 |
 | requires-exec-path | 200 |
@@ -125,7 +125,7 @@ icon: "chart-bar"
 | heapdump | 1 | 1 | 0 | 0 | 100.0% |
 | heapsnapshot | 2 | 0 | 2 | 0 | 0.0% |
 | http | 377 | 275 (1 vacuous) | 101 | 1 | 73.1% |
-| http2 | 256 | 18 | 238 | 0 | 7.0% |
+| http2 | 256 | 28 | 228 | 0 | 10.9% |
 | https | 62 | 5 (3 vacuous) | 0 | 57 | 100.0% |
 | icu | 5 | 0 | 5 | 0 | 0.0% |
 | inspect | 4 | 0 | 4 | 0 | 0.0% |
@@ -246,11 +246,11 @@ icon: "chart-bar"
 | wrap | 4 | 0 | 4 | 0 | 0.0% |
 | x509 | 1 | 0 | 1 | 0 | 0.0% |
 | zlib | 53 | 17 | 33 | 3 | 34.0% |
-| **Total** | **3532** | **1161** | **2258** | **113** | **34.0%** |
+| **Total** | **3532** | **1171** | **2248** | **113** | **34.2%** |
 
 ## Expectations Detail
 
-### implementation-gap (641 entries)
+### implementation-gap (651 entries)
 
 **Glob patterns:**
 
@@ -258,7 +258,7 @@ icon: "chart-bar"
 - `test-http2-!(allow-http1|client-request-options-errors|client-setLocalWindowSize|error-order|goaway-delayed-request|goaway-opaquedata|misbehaving-flow-control|misbehaving-flow-control-paused|request-response-proto|respond-file-filehandle|server-push-stream|server-push-stream-errors-args|server-push-stream-head|server-setLocalWindowSize|session-settings|status-code-invalid|update-settings|window-size).js` — outside the landed allowHTTP1, push/settings, request-response, and window-size slices, the remaining http2 suite still fails on compatibility wrappers, secure-session bootstrap, multiplexing/teardown, and file-response helper gaps
 - `test-https-*.js` — https conformance still hangs on most TLS-backed client/server lifecycle and certificate-handling paths, so the remaining broad slice is skipped pending exact inventory
 
-*638 individual tests — see expectations.json for full list.*
+*648 individual tests — see expectations.json for full list.*
 
 ### unsupported-module (208 entries)
 

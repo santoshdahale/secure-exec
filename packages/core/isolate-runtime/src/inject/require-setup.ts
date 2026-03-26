@@ -1022,6 +1022,9 @@
                 typeof options === 'object' && options !== null ? options : {};
               const depth =
                 typeof inspectOptions.depth === 'number' ? inspectOptions.depth : 2;
+              if (typeof value === 'symbol') {
+                return value.toString();
+              }
               if (!containsCustomInspectable(value, depth, new Set())) {
                 return originalInspect.call(this, value, options);
               }
@@ -3710,13 +3713,16 @@
 
         if (name === 'internal/http2/util') {
           if (__internalModuleCache[name]) return __internalModuleCache[name];
-          class NghttpError extends Error {
-            constructor(message) {
-              super(message);
-              this.name = 'Error';
-              this.code = 'ERR_HTTP2_ERROR';
-            }
-          }
+          const sharedNghttpError = _http2Module?.NghttpError;
+          const NghttpError = typeof sharedNghttpError === 'function'
+            ? sharedNghttpError
+            : class NghttpError extends Error {
+                constructor(message) {
+                  super(message);
+                  this.name = 'Error';
+                  this.code = 'ERR_HTTP2_ERROR';
+                }
+              };
           const utilModule = {
             kSocket: Symbol.for('secure-exec.http2.kSocket'),
             NghttpError,

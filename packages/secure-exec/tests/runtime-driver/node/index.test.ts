@@ -2253,6 +2253,251 @@ describe("NodeRuntime", () => {
 		expect(capture.stdout()).toContain("body file-handle-body");
 	});
 
+	it("serves bridged http2 respondWithFile responses from the sandbox VFS with statCheck and range metadata", async () => {
+		const capture = createConsoleCapture();
+		const filesystem = createInMemoryFileSystem();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			filesystem,
+			driver: createNodeDriver({
+				filesystem,
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const fs = require('fs');
+			const http2 = require('http2');
+			const {
+				HTTP2_HEADER_CONTENT_TYPE,
+				HTTP2_HEADER_CONTENT_LENGTH,
+				HTTP2_HEADER_LAST_MODIFIED,
+			} = http2.constants;
+			fs.writeFileSync('/tmp/http2-range.txt', '0123456789abcdef');
+			const stat = fs.statSync('/tmp/http2-range.txt');
+			const server = http2.createServer();
+			server.on('stream', (stream) => {
+				stream.respondWithFile('/tmp/http2-range.txt', {
+					[HTTP2_HEADER_CONTENT_TYPE]: 'text/plain',
+				}, {
+					offset: 8,
+					length: 3,
+					statCheck(fileStat, headers, options) {
+						headers[HTTP2_HEADER_LAST_MODIFIED] = fileStat.mtime.toUTCString();
+						console.log('statcheck', options.offset, options.length, fileStat.size);
+					},
+				});
+			});
+			server.listen(0, () => {
+				const client = http2.connect('http://localhost:' + server.address().port);
+				const req = client.request();
+				let body = '';
+				req.setEncoding('utf8');
+				req.on('response', (headers) => {
+					console.log(
+						'headers',
+						headers[HTTP2_HEADER_CONTENT_TYPE],
+						headers[HTTP2_HEADER_CONTENT_LENGTH],
+						headers[HTTP2_HEADER_LAST_MODIFIED] === stat.mtime.toUTCString(),
+					);
+				});
+				req.on('data', (chunk) => body += chunk);
+				req.on('end', () => {
+					console.log('body', body);
+					client.close();
+					server.close();
+				});
+				req.end();
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("statcheck 8 3 16");
+		expect(capture.stdout()).toContain("headers text/plain 3 true");
+		expect(capture.stdout()).toContain("body 89a");
+	});
+
+	it("matches bridged http2 respondWithFile validation and invalid fd errors", async () => {
+		const capture = createConsoleCapture();
+		const filesystem = createInMemoryFileSystem();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			filesystem,
+			driver: createNodeDriver({
+				filesystem,
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const fs = require('fs');
+			const http2 = require('http2');
+			fs.writeFileSync('/tmp/http2-errors.txt', 'file-body');
+			let phase = 0;
+			const server = http2.createServer();
+			server.on('stream', (stream) => {
+				phase += 1;
+				if (phase === 1) {
+					try {
+						stream.respondWithFile('/tmp/http2-errors.txt', {}, { offset: 'bad' });
+					} catch (error) {
+						console.log('offset-error', error.code, error.message);
+					}
+					try {
+						stream.respondWithFile('/tmp/http2-errors.txt', { ':status': 204 });
+					} catch (error) {
+						console.log('status-error', error.code, error.message);
+					}
+					stream.respond({ ':status': 200 });
+					try {
+						stream.respondWithFile('/tmp/http2-errors.txt');
+					} catch (error) {
+						console.log('headers-error', error.code, error.message);
+					}
+					stream.destroy();
+					try {
+						stream.respondWithFile('/tmp/http2-errors.txt');
+					} catch (error) {
+						console.log('destroyed-error', error.code, error.message);
+					}
+					return;
+				}
+				stream.on('error', (error) => {
+					console.log('stream-error', error.code, error.message);
+				});
+				stream.respondWithFD(999999);
+			});
+			server.listen(0, () => {
+				const client = http2.connect('http://localhost:' + server.address().port);
+				const req1 = client.request();
+				req1.on('close', () => {
+					const req2 = client.request();
+					req2.on('error', (error) => {
+						console.log('client-error', error.code, error.message);
+					});
+					req2.on('close', () => {
+						client.close();
+						server.close();
+					});
+					req2.end();
+				});
+				req1.end();
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("offset-error ERR_INVALID_ARG_VALUE");
+		expect(capture.stdout()).toContain("status-error ERR_HTTP2_PAYLOAD_FORBIDDEN");
+		expect(capture.stdout()).toContain("headers-error ERR_HTTP2_HEADERS_SENT");
+		expect(capture.stdout()).toContain("destroyed-error ERR_HTTP2_INVALID_STREAM");
+		expect(capture.stdout()).toContain("stream-error ERR_HTTP2_STREAM_ERROR Stream closed with error code NGHTTP2_INTERNAL_ERROR");
+		expect(capture.stdout()).toContain("client-error ERR_HTTP2_STREAM_ERROR Stream closed with error code NGHTTP2_INTERNAL_ERROR");
+	}, 10000);
+
+	it("shares bridged http2 internal NghttpError constructors with internal/test/binding error mocks", async () => {
+		const capture = createConsoleCapture();
+		const filesystem = createInMemoryFileSystem();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			filesystem,
+			driver: createNodeDriver({
+				filesystem,
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const fs = require('fs');
+			const http2 = require('http2');
+			const { internalBinding } = require('internal/test/binding');
+			const { Http2Stream, constants, nghttp2ErrorString } = internalBinding('http2');
+			const { NghttpError } = require('internal/http2/util');
+			fs.writeFileSync('/tmp/http2-ngerror.txt', 'file-body');
+			Http2Stream.prototype.respond = () => constants.NGHTTP2_ERR_INVALID_ARGUMENT;
+			const server = http2.createServer();
+			server.on('stream', (stream) => {
+				stream.on('error', (error) => {
+					console.log(
+						'stream-error',
+						error instanceof NghttpError,
+						error.code,
+						error.message === nghttp2ErrorString(constants.NGHTTP2_ERR_INVALID_ARGUMENT),
+					);
+				});
+				stream.respondWithFile('/tmp/http2-ngerror.txt');
+			});
+			server.listen(0, () => {
+				const client = http2.connect('http://localhost:' + server.address().port);
+				const req = client.request();
+				req.on('error', (error) => {
+					console.log('client-error', error.code, error.message);
+				});
+				req.on('close', () => {
+					client.close();
+					server.close();
+				});
+				req.end();
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("stream-error true ERR_HTTP2_ERROR true");
+		expect(capture.stdout()).toContain("client-error ERR_HTTP2_STREAM_ERROR Stream closed with error code NGHTTP2_INTERNAL_ERROR");
+	});
+
+	it("serves host-backed http2 respondWithFile fallbacks and honors borrowed net.Socket destroy on the session socket", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({
+				filesystem: new NodeFileSystem(),
+				networkAdapter: createDefaultNetworkAdapter(),
+				permissions: allowFsNetworkEnv,
+			}),
+		});
+
+		const result = await proc.exec(`
+			const assert = require('assert');
+			const http2 = require('http2');
+			const net = require('net');
+			const server = http2.createServer();
+			server.on('stream', (stream) => {
+				stream.on('error', (err) => {
+					console.log('server-error', err.code);
+				});
+				stream.respondWithFile(process.execPath, {
+					'content-type': 'application/octet-stream',
+				});
+			});
+			server.on('close', () => {
+				console.log('server-close');
+			});
+			server.listen(0, () => {
+				const client = http2.connect('http://localhost:' + server.address().port);
+				const req = client.request();
+				req.on('response', () => {
+					console.log('response');
+				});
+				req.once('data', () => {
+					net.Socket.prototype.destroy.call(client.socket);
+					server.close();
+				});
+				req.on('close', () => {
+					console.log('client-close');
+				});
+				req.end();
+			});
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("response");
+		expect(capture.stdout()).toContain("client-close");
+		expect(capture.stdout()).toContain("server-close");
+	});
+
 	it("handles bridged secure http2 allowHTTP1 fallback requests", async () => {
 		const capture = createConsoleCapture();
 		proc = createTestNodeRuntime({
