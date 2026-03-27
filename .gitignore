@@ -11,3 +11,4 @@ packages/secure-exec/src/generated/
 packages/playground/secure-exec-worker.js
 packages/playground/vendor/
 .astro
+.pi/
