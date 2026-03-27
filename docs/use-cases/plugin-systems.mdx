@@ -26,22 +26,21 @@ import {
 const filesystem = createInMemoryFileSystem();
 await filesystem.mkdir("/plugins");
 await filesystem.writeFile(
-  "/plugins/title-case.js",
+  "/plugins/title-case.mjs",
   `
-    module.exports = {
-      manifest: {
-        name: "title-case",
-        version: "1.0.0",
-      },
-      transform(input, options = {}) {
-        const words = String(input)
-          .split(/\\s+/)
-          .filter(Boolean)
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
-
-        return (options.prefix ?? "") + words.join(" ");
-      },
+    export const manifest = {
+      name: "title-case",
+      version: "1.0.0",
     };
+
+    export function transform(input, options = {}) {
+      const words = String(input)
+        .split(/\\s+/)
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+
+      return (options.prefix ?? "") + words.join(" ");
+    }
   `
 );
 
@@ -62,16 +61,14 @@ const result = await runtime.run<{
   manifest: { name: string; version: string };
   output: string;
 }>(`
-  const plugin = require("/plugins/title-case.js");
+  import { manifest, transform } from "/plugins/title-case.mjs";
 
-  module.exports = {
-    manifest: plugin.manifest,
-    output: plugin.transform(
-      ${JSON.stringify(input)},
-      ${JSON.stringify(options)}
-    ),
-  };
-`, "/root/run-plugin.js");
+  export { manifest };
+  export const output = transform(
+    ${JSON.stringify(input)},
+    ${JSON.stringify(options)}
+  );
+`, "/root/run-plugin.mjs");
 
 console.log(result.exports?.manifest.name); // "title-case"
 console.log(result.exports?.output); // "Plugin says: Hello From Plugin Land"

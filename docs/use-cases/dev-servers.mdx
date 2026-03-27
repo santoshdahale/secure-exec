@@ -38,27 +38,23 @@ const runtime = new NodeRuntime({
 });
 
 const execPromise = runtime.exec(`
-  (async () => {
-    const { Hono } = require("hono");
-    const { serve } = require("@hono/node-server");
+  import { Hono } from "hono";
+  import { serve } from "@hono/node-server";
 
-    const app = new Hono();
-    app.get("/", (c) => c.text("hello from sandboxed hono"));
-    app.get("/health", (c) => c.json({ ok: true }));
+  const app = new Hono();
+  app.get("/", (c) => c.text("hello from sandboxed hono"));
+  app.get("/health", (c) => c.json({ ok: true }));
 
-    serve({
-      fetch: app.fetch,
-      port: ${port},
-      hostname: "${host}",
-    });
-
-    console.log("server:listening:${port}");
-    await new Promise(() => {});
-  })().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
+  serve({
+    fetch: app.fetch,
+    port: ${port},
+    hostname: "${host}",
   });
+
+  console.log("server:listening:${port}");
+  await new Promise(() => {});
 `, {
+  filePath: "/app/server.mjs",
   onStdio: (event) => logs.push(`[${event.channel}] ${event.message}`),
 });
 

@@ -64,9 +64,9 @@ const { text } = await generateText({
   stopWhen: stepCountIs(5),
   tools: {
     execute: tool({
-      description: "Run JavaScript in a secure sandbox. Assign the result to module.exports to return data.",
+      description: "Run JavaScript in a secure sandbox. Use export to return data.",
       inputSchema: z.object({ code: z.string() }),
-      execute: async ({ code }) => runtime.run(code),
+      execute: async ({ code }) => runtime.run(code, "/entry.mjs"),
     }),
   },
 });

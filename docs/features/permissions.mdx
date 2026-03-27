@@ -37,7 +37,7 @@ const result = await runtime.run<{
 	blocked: boolean;
 }>(
 	`
-  const fs = require("node:fs");
+  import fs from "node:fs";
 
   fs.mkdirSync("/workspace", { recursive: true });
   fs.writeFileSync("/workspace/message.txt", "hello from permissions");
@@ -49,11 +49,10 @@ const result = await runtime.run<{
     blocked = error && error.code === "EACCES";
   }
 
-  module.exports = {
-    message: fs.readFileSync("/workspace/message.txt", "utf8"),
-    blocked,
-  };
+  export const message = fs.readFileSync("/workspace/message.txt", "utf8");
+  export { blocked };
 `,
+	"/entry.mjs",
 );
 
 console.log(

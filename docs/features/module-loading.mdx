@@ -9,7 +9,7 @@ icon: "cubes"
   Runnable example for module resolution and loading.
 </Card>
 
-Sandboxed code can `require()` and `import` modules through secure-exec's module resolution system.
+Sandboxed code can `import` and `require()` modules through secure-exec's module resolution system.
 
 ## Runnable example
 
@@ -36,10 +36,10 @@ const runtime = new NodeRuntime({
 try {
 	const result = await runtime.run<{ version: string }>(
 		`
-    const typescript = require("/root/node_modules/typescript/lib/typescript.js");
-    module.exports = { version: typescript.version };
+    import typescript from "/root/node_modules/typescript/lib/typescript.js";
+    export const version = typescript.version;
   `,
-		"/app/example.js",
+		"/app/example.mjs",
 	);
 
 	if (result.code !== 0 || typeof result.exports?.version !== "string") {
@@ -66,7 +66,7 @@ Node runtime executions expose a read-only dependency overlay at `/app/node_modu
 
 ```ts
 // Inside the sandbox, this resolves from the host's node_modules
-const lodash = require("lodash");
+import lodash from "lodash";
 ```
 
 Key constraints:

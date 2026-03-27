@@ -148,8 +148,9 @@ class ReadOnlyMapFS implements VirtualFileSystem {
 ```ts
 const fs = new ReadOnlyMapFS({
   "/config.json": JSON.stringify({ greeting: "hello" }),
-  "/src/index.js": `
-    const config = JSON.parse(require("fs").readFileSync("/config.json", "utf8"));
+  "/src/index.mjs": `
+    import { readFileSync } from "node:fs";
+    const config = JSON.parse(readFileSync("/config.json", "utf8"));
     console.log(config.greeting);
   `,
 });
@@ -163,9 +164,10 @@ const runtime = new NodeRuntime({
 });
 
 const result = await runtime.exec(`
-  const config = JSON.parse(require("fs").readFileSync("/config.json", "utf8"));
+  import { readFileSync } from "node:fs";
+  const config = JSON.parse(readFileSync("/config.json", "utf8"));
   console.log(config.greeting);
-`);
+`, { filePath: "/entry.mjs" });
 
 // Output captured via onStdio callback — see Output Capture docs
 runtime.dispose();

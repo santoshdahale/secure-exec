@@ -246,8 +246,8 @@ const runtime = new NodeRuntime({
 });
 
 const execution = await runtime.run<{ answer: number }>(
-  "module.exports = require('./dist/index.js');",
-  "/root/entry.js",
+  "export { default as answer } from './dist/index.js';",
+  "/root/entry.mjs",
 );
 
 console.log(execution.exports); // { answer: 42 }

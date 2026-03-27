@@ -12,7 +12,7 @@ Give your agent a code-execution tool with explicit CPU and memory limits. The a
 
 ## Run generated JavaScript
 
-The agent writes JavaScript, assigns a return value to `module.exports`, and gets it back.
+The agent writes JavaScript, uses `export` to return values, and the host gets them back.
 
 ```ts JavaScript Execution
 import { generateText, stepCountIs, tool } from "ai";
@@ -38,9 +38,9 @@ const { text } = await generateText({
   stopWhen: stepCountIs(5),
   tools: {
     execute: tool({
-      description: "Run JavaScript in a secure sandbox. Assign the result to module.exports to return data.",
+      description: "Run JavaScript in a secure sandbox. Use export to return data.",
       inputSchema: z.object({ code: z.string() }),
-      execute: async ({ code }) => runtime.run(code),
+      execute: async ({ code }) => runtime.run(code, "/entry.mjs"),
     }),
   },
 });
@@ -87,7 +87,7 @@ const ts = createTypeScriptTools({
 const { text } = await generateText({
   model: anthropic("claude-sonnet-4-6"),
   prompt:
-    "Write TypeScript that calculates the first 20 fibonacci numbers. Assign the result to module.exports.",
+    "Write TypeScript that calculates the first 20 fibonacci numbers. Use export to return the result.",
   stopWhen: stepCountIs(5),
   tools: {
     execute_typescript: tool({
@@ -99,7 +99,7 @@ const { text } = await generateText({
           sourceText: code,
           filePath: "/root/generated.ts",
           compilerOptions: {
-            module: "commonjs",
+            module: "esnext",
             target: "es2022",
           },
         });
@@ -116,7 +116,7 @@ const { text } = await generateText({
           sourceText: code,
           filePath: "/root/generated.ts",
           compilerOptions: {
-            module: "commonjs",
+            module: "esnext",
             target: "es2022",
           },
         });
@@ -131,7 +131,7 @@ const { text } = await generateText({
 
         const execution = await runtime.run<Record<string, unknown>>(
           compiled.outputText,
-          "/root/generated.js"
+          "/root/generated.mjs"
         );
 
         if (execution.code !== 0) {
