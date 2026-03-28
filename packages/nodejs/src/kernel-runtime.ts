@@ -21,10 +21,13 @@ import type {
 } from '@secure-exec/core';
 import { NodeExecutionDriver } from './execution-driver.js';
 import { createDefaultNetworkAdapter, createNodeDriver } from './driver.js';
+import { transformSourceForRequireSync } from './module-source.js';
 import type { BindingTree } from './bindings.js';
 import {
+  allowAll,
   allowAllChildProcess,
   allowAllFs,
+  allowAllNetwork,
   createProcessScopedFileSystem,
 } from '@secure-exec/core';
 import type {
@@ -53,6 +56,17 @@ export interface NodeRuntimeOptions {
    * Nested objects become dot-separated paths (max depth 4, max 64 leaves).
    */
   bindings?: BindingTree;
+  /**
+   * Loopback ports to exempt from SSRF checks. Useful for testing with
+   * host-side mock servers that sandbox code needs to reach.
+   */
+  loopbackExemptPorts?: number[];
+  /**
+   * Host-side CWD for module access resolution. When set, the
+   * ModuleAccessFileSystem uses this path instead of the VM process CWD
+   * to locate host node_modules. Defaults to the VM process CWD.
+   */
+  moduleAccessCwd?: string;
 }
 
 const allowKernelProcSelfRead: Pick<Permissions, 'fs'> = {
@@ -82,7 +96,10 @@ const allowKernelProcSelfRead: Pick<Permissions, 'fs'> = {
       normalized.startsWith('/proc/self/') ||
       normalized === '/proc/sys' ||
       normalized === '/proc/sys/kernel' ||
-      normalized === '/proc/sys/kernel/hostname'
+      normalized === '/proc/sys/kernel/hostname' ||
+      normalized === '/root' ||
+      normalized === '/root/node_modules' ||
+      normalized.startsWith('/root/node_modules/')
     ) {
       return { allow: true };
     }
@@ -369,14 +386,15 @@ class NodeRuntimeDriver implements RuntimeDriver {
   private _permissions: Partial<Permissions>;
   private _bindings?: BindingTree;
   private _activeDrivers = new Map<number, NodeExecutionDriver>();
+  private _loopbackExemptPorts?: number[];
+  private _moduleAccessCwd?: string;
 
   constructor(options?: NodeRuntimeOptions) {
     this._memoryLimit = options?.memoryLimit ?? 128;
-    this._permissions = options?.permissions ?? {
-      ...allowAllChildProcess,
-      ...allowKernelProcSelfRead,
-    };
+    this._permissions = options?.permissions ?? allowAll;
     this._bindings = options?.bindings;
+    this._loopbackExemptPorts = options?.loopbackExemptPorts;
+    this._moduleAccessCwd = options?.moduleAccessCwd;
   }
 
   async init(kernel: KernelInterface): Promise<void> {
@@ -576,9 +594,11 @@ class NodeRuntimeDriver implements RuntimeDriver {
 
       const systemDriver = createNodeDriver({
         filesystem,
-        moduleAccess: { cwd: ctx.cwd },
+        moduleAccess: { cwd: this._moduleAccessCwd ?? ctx.cwd },
         networkAdapter: kernel.socketTable.hasHostNetworkAdapter()
-          ? createDefaultNetworkAdapter()
+          ? createDefaultNetworkAdapter({
+              initialExemptPorts: this._loopbackExemptPorts,
+            })
           : undefined,
         commandExecutor,
         permissions,
@@ -767,6 +787,20 @@ class NodeRuntimeDriver implements RuntimeDriver {
         const content = await kernel.vfs.readTextFile(scriptPath);
         return { code: content, filePath: scriptPath };
       } catch {
+        // Fall back to host filesystem for module access paths (/root/node_modules/*)
+        if (scriptPath.startsWith('/root/node_modules/') && this._moduleAccessCwd) {
+          const hostPath = join(
+            this._moduleAccessCwd,
+            'node_modules',
+            scriptPath.slice('/root/node_modules/'.length),
+          );
+          try {
+            const content = readFileSync(hostPath, 'utf-8');
+            return { code: content, filePath: scriptPath };
+          } catch {
+            // Fall through to the error below
+          }
+        }
         throw new Error(`Cannot find module '${scriptPath}'`);
       }
     }

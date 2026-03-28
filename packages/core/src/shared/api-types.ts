@@ -86,6 +86,8 @@ export interface ExecOptions {
 	timingMitigation?: TimingMitigation;
 	/** Optional streaming hook for console output events */
 	onStdio?: StdioHook;
+	/** Override execution mode. 'run' mode processes async operations (timers, network). */
+	mode?: "exec" | "run";
 }
 
 export interface ExecResult extends ExecutionStatus {}

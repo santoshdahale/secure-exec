@@ -983,7 +983,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 
 	async exec(code: string, options?: ExecOptions): Promise<ExecResult> {
 		const result = await this.executeInternal({
-			mode: "exec",
+			mode: options?.mode ?? "exec",
 			code,
 			filePath: options?.filePath,
 			env: options?.env,

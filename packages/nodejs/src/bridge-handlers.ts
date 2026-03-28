@@ -2910,6 +2910,38 @@ function selectPackageExportTarget(
 }
 
 /**
+ * Resolve a `#`-prefixed subpath import by walking up directories to find
+ * the nearest package.json with an `imports` field. Uses synchronous I/O.
+ */
+function resolvePackageImportSync(
+	specifier: string,
+	startDir: string,
+	mode: "require" | "import" = "require",
+): string | null {
+	let cur = startDir;
+	while (cur !== pathDirname(cur)) {
+		const pkgJsonPath = pathJoin(cur, "package.json");
+		if (existsSync(pkgJsonPath)) {
+			try {
+				const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
+				if (pkg.imports && typeof pkg.imports === "object") {
+					const entry = pkg.imports[specifier];
+					if (typeof entry === "string") {
+						return pathJoin(cur, entry);
+					}
+					if (entry && typeof entry === "object") {
+						const target = selectPackageExportTarget(entry, mode);
+						if (target) return pathJoin(cur, target);
+					}
+				}
+			} catch { /* malformed package.json, try parent */ }
+		}
+		cur = pathDirname(cur);
+	}
+	return null;
+}
+
+/**
  * Resolve a package specifier by walking up directories and reading package.json exports.
  * Handles both root imports ('pkg') and subpath imports ('pkg/sub').
  */
@@ -2992,6 +3024,18 @@ export function buildModuleResolutionBridgeHandlers(
 				deps.sandboxToHostPath(sandboxDir) ??
 				sandboxDir,
 		);
+
+		// Handle absolute path specifiers directly
+		if (req.startsWith("/")) {
+			return req;
+		}
+
+		// Handle #-prefixed subpath imports (package.json "imports" field)
+		if (req.startsWith("#")) {
+			const resolved = resolvePackageImportSync(req, hostDir, resolveMode);
+			return resolved ? deps.hostToSandboxPath(resolved) : null;
+		}
+
 		const resolveFromExports = (dir: string) => {
 			const resolved = resolvePackageExport(req, dir, resolveMode);
 			return resolved ? deps.hostToSandboxPath(resolved) : null;
@@ -3238,6 +3282,10 @@ export function buildModuleLoadingBridgeHandlers(
 		if (/\.[cm]?[jt]sx?$/.test(dir)) {
 			const lastSlash = dir.lastIndexOf("/");
 			if (lastSlash > 0) dir = dir.slice(0, lastSlash);
+		}
+		// Handle absolute path specifiers directly (e.g. from V8 module linker)
+		if (req.startsWith("/")) {
+			return req;
 		}
 		const vfsResult = await resolveModule(
 			req,

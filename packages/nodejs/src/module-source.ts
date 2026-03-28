@@ -35,6 +35,67 @@ function parseSourceSyntax(source: string, filePath?: string) {
 	return { hasModuleSyntax, hasDynamicImport, hasImportMeta };
 }
 
+/**
+ * Expand `export * from '...'` re-exports into explicit named exports.
+ *
+ * The V8 isolate's module linker doesn't automatically resolve star
+ * re-exports, so we pre-resolve them by reading the target module and
+ * extracting its named exports. This runs on the host side before the
+ * source is sent to the isolate.
+ */
+function expandStarReExports(source: string, hostPath: string): string {
+	const starExportRegex = /export\s*\*\s*from\s*['"]([^'"]+)['"]\s*;?/g;
+	let result = source;
+	let match: RegExpExecArray | null;
+
+	// Collect names already directly exported by this module to avoid duplicates
+	initSync();
+	const [, ownExports] = parse(source, hostPath);
+	const ownExportNames = new Set(
+		ownExports
+			.map((e) => e.n)
+			.filter((n): n is string => typeof n === "string"),
+	);
+
+	while ((match = starExportRegex.exec(source)) !== null) {
+		const specifier = match[1];
+		const dir = pathDirname(hostPath);
+		const targetPath = specifier.startsWith(".")
+			? pathJoin(dir, specifier)
+			: null;
+
+		if (!targetPath || !existsSync(targetPath)) continue;
+
+		try {
+			const targetSource = readFileSync(targetPath, "utf-8");
+			const [, targetExports] = parse(targetSource, targetPath);
+			const names = targetExports
+				.map((e) => e.n)
+				.filter(
+					(n): n is string =>
+						typeof n === "string" &&
+						n !== "default" &&
+						!ownExportNames.has(n),
+				);
+
+			if (names.length > 0) {
+				// Track these names so subsequent export * don't duplicate
+				for (const n of names) ownExportNames.add(n);
+				result = result.replace(
+					match[0],
+					`export { ${names.join(", ")} } from '${specifier}';`,
+				);
+			} else {
+				result = result.replace(match[0], "");
+			}
+		} catch {
+			// If we can't resolve, leave the export * as-is
+		}
+	}
+
+	return result;
+}
+
 function isValidIdentifier(value: string): boolean {
 	return /^[$A-Z_][0-9A-Z_$]*$/i.test(value);
 }
@@ -274,20 +335,26 @@ export function transformSourceForImportSync(
 		return buildCommonJsImportWrapper(normalizedSource, filePath);
 	}
 
+	// Expand export * re-exports before V8 evaluation
+	let processedSource = normalizedSource;
+	if (/export\s*\*\s*from\s/.test(processedSource) && formatPath) {
+		processedSource = expandStarReExports(processedSource, formatPath);
+	}
+
 	initSync();
-	const syntax = parseSourceSyntax(normalizedSource, filePath);
+	const syntax = parseSourceSyntax(processedSource, filePath);
 	const needsTransform =
-		normalizedSource.includes(UNICODE_SET_REGEX_MARKER) || syntax.hasImportMeta;
+		processedSource.includes(UNICODE_SET_REGEX_MARKER) || syntax.hasImportMeta;
 	if (!(syntax.hasModuleSyntax || syntax.hasDynamicImport || syntax.hasImportMeta)) {
-		return normalizedSource;
+		return processedSource;
 	}
 	if (!needsTransform) {
-		return normalizedSource;
+		return processedSource;
 	}
 
 	try {
-		return transformSync(normalizedSource, getImportTransformOptions(filePath, syntax)).code;
+		return transformSync(processedSource, getImportTransformOptions(filePath, syntax)).code;
 	} catch {
-		return normalizedSource;
+		return processedSource;
 	}
 }
