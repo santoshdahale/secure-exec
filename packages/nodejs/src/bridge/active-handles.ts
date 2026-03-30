@@ -99,28 +99,22 @@ export function _waitForActiveHandles(): Promise<void> {
 	const promises: Promise<void>[] = [];
 
 	if (hasHandles) {
+		// Instead of polling with setTimeout (which uses IPC and starves user code),
+		// register a resolver that fires when _unregisterHandle reduces handles to 0.
+		// The _unregisterHandle function already calls _notifyHandleChange.
 		promises.push(
 			new Promise((resolve) => {
 				let settled = false;
 				const complete = () => {
-					if (settled) {
-						return;
-					}
+					if (settled) return;
 					settled = true;
 					resolve();
 				};
 				_waitResolvers.push(complete);
-				const poll = () => {
-					if (settled) {
-						return;
-					}
-					if (_getActiveHandles().length === 0) {
-						complete();
-						return;
-					}
-					setTimeout(poll, 1000);
-				};
-				setTimeout(poll, 1000);
+				// Check immediately in case handles already drained
+				if (_getActiveHandles().length === 0) {
+					complete();
+				}
 			}),
 		);
 	}
