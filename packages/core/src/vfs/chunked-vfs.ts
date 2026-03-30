@@ -546,10 +546,12 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 			if (existingIno !== null) {
 				const release = await mutex.acquire(existingIno);
 				try {
-					const meta = await requireInode(existingIno);
-					writeBuffers.delete(existingIno);
-					await writeInodeContent(existingIno, data, meta);
-					await metadata.updateInode(existingIno, { nlink: Math.max(meta.nlink, 1) });
+					await metadata.transaction(async () => {
+						const meta = await requireInode(existingIno);
+						writeBuffers.delete(existingIno);
+						await writeInodeContent(existingIno, data, meta);
+						await metadata.updateInode(existingIno, { nlink: Math.max(meta.nlink, 1) });
+					});
 				} finally {
 					release();
 				}
@@ -655,9 +657,8 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 		},
 
 		async pwrite(path: string, offset: number, data: Uint8Array): Promise<void> {
-			if (data.length === 0) return;
-
 			const ino = await resolveIno(path);
+			if (data.length === 0) return;
 			const release = await mutex.acquire(ino);
 			try {
 				const meta = await requireInode(ino);
@@ -971,10 +972,45 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 			}
 		},
 
-		async mkdir(path: string, _options?: { recursive?: boolean }): Promise<void> {
+		async mkdir(path: string, options?: { recursive?: boolean }): Promise<void> {
+			const recursive = options?.recursive ?? false;
 			const parts = splitPath(normalizePath(path));
-			let currentIno = 1; // root
 
+			if (!recursive) {
+				// Non-recursive: parent must exist, target must not.
+				if (parts.length === 0) {
+					throw new KernelError("EEXIST", `directory already exists: '${path}'`);
+				}
+				let parentIno = 1; // root
+				for (let i = 0; i < parts.length - 1; i++) {
+					const childIno = await metadata.lookup(parentIno, parts[i]!);
+					if (childIno === null) {
+						throw new KernelError("ENOENT", `no such file or directory: '${path}'`);
+					}
+					parentIno = childIno;
+				}
+				const targetName = parts[parts.length - 1]!;
+				const existingIno = await metadata.lookup(parentIno, targetName);
+				if (existingIno !== null) {
+					throw new KernelError("EEXIST", `directory already exists: '${path}'`);
+				}
+				const dirIno = await metadata.createInode({
+					type: "directory",
+					mode: 0o755,
+					uid: 0,
+					gid: 0,
+				});
+				await metadata.createDentry(parentIno, targetName, dirIno, "directory");
+				await metadata.updateInode(dirIno, { nlink: 2, size: 4096 });
+				const parentMeta = await metadata.getInode(parentIno);
+				if (parentMeta) {
+					await metadata.updateInode(parentIno, { nlink: parentMeta.nlink + 1 });
+				}
+				return;
+			}
+
+			// Recursive: create all intermediate directories.
+			let currentIno = 1; // root
 			for (const part of parts) {
 				const childIno = await metadata.lookup(currentIno, part);
 				if (childIno !== null) {
@@ -1432,6 +1468,15 @@ export function createChunkedVfs(options: ChunkedVfsOptions): VirtualFileSystem 
 		// Attach versioning methods to the VFS object.
 		Object.assign(vfs, { versioning: versioningApi });
 	}
+
+	// Expose dispose() to clear the auto-flush timer.
+	const dispose = (): void => {
+		if (autoFlushTimer !== undefined) {
+			clearInterval(autoFlushTimer);
+			autoFlushTimer = undefined;
+		}
+	};
+	Object.assign(vfs, { dispose });
 
 	return vfs;
 }

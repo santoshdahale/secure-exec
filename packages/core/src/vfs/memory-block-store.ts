@@ -34,7 +34,7 @@ export class InMemoryBlockStore implements FsBlockStore {
 	}
 
 	async write(key: string, data: Uint8Array): Promise<void> {
-		this.blocks.set(key, data);
+		this.blocks.set(key, new Uint8Array(data));
 	}
 
 	async delete(key: string): Promise<void> {

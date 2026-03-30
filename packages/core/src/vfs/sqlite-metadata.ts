@@ -166,7 +166,7 @@ export class SqliteMetadataStore implements FsMetadataStore, FsMetadataStoreVers
 				uid              INTEGER NOT NULL DEFAULT 0,
 				gid              INTEGER NOT NULL DEFAULT 0,
 				size             INTEGER NOT NULL DEFAULT 0,
-				nlink            INTEGER NOT NULL DEFAULT 1,
+				nlink            INTEGER NOT NULL DEFAULT 0,
 				atime_ms         INTEGER NOT NULL,
 				mtime_ms         INTEGER NOT NULL,
 				ctime_ms         INTEGER NOT NULL,
@@ -255,14 +255,18 @@ export class SqliteMetadataStore implements FsMetadataStore, FsMetadataStoreVers
 
 	// -- Transactions --
 
+	private savepointCounter = 0;
+
 	async transaction<T>(fn: () => Promise<T>): Promise<T> {
-		this.db.exec("BEGIN");
+		const name = `sp_${this.savepointCounter++}`;
+		this.db.exec(`SAVEPOINT ${name}`);
 		try {
 			const result = await fn();
-			this.db.exec("COMMIT");
+			this.db.exec(`RELEASE ${name}`);
 			return result;
 		} catch (err) {
-			this.db.exec("ROLLBACK");
+			this.db.exec(`ROLLBACK TO ${name}`);
+			this.db.exec(`RELEASE ${name}`);
 			throw err;
 		}
 	}
