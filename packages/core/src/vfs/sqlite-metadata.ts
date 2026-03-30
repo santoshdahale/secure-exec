@@ -60,9 +60,12 @@ export class SqliteMetadataStore implements FsMetadataStore, FsMetadataStoreVers
 	private stmtGetSymlink: BetterSqlite3.Statement;
 	private stmtGetChunkKey: BetterSqlite3.Statement;
 	private stmtSetChunkKey: BetterSqlite3.Statement;
+	private stmtLookupFull: BetterSqlite3.Statement;
 	private stmtGetAllChunkKeys: BetterSqlite3.Statement;
 	private stmtDeleteAllChunks: BetterSqlite3.Statement;
 	private stmtDeleteChunksFrom: BetterSqlite3.Statement;
+	private stmtDeleteChunksFromDel: BetterSqlite3.Statement;
+	private stmtRenameDentry: BetterSqlite3.Statement;
 
 	// Versioning prepared statements (only initialized if versioning is enabled).
 	private stmtCreateVersion!: BetterSqlite3.Statement;
@@ -96,6 +99,9 @@ export class SqliteMetadataStore implements FsMetadataStore, FsMetadataStoreVers
 		);
 		this.stmtLookup = this.db.prepare(
 			"SELECT child_ino FROM dentries WHERE parent_ino = ? AND name = ?",
+		);
+		this.stmtLookupFull = this.db.prepare(
+			"SELECT child_ino, child_type FROM dentries WHERE parent_ino = ? AND name = ?",
 		);
 		this.stmtCreateDentry = this.db.prepare(
 			"INSERT INTO dentries (parent_ino, name, child_ino, child_type) VALUES (?, ?, ?, ?)",
@@ -132,6 +138,12 @@ export class SqliteMetadataStore implements FsMetadataStore, FsMetadataStoreVers
 		);
 		this.stmtDeleteChunksFrom = this.db.prepare(
 			"SELECT block_key FROM chunks WHERE ino = ? AND chunk_index >= ?",
+		);
+		this.stmtDeleteChunksFromDel = this.db.prepare(
+			"DELETE FROM chunks WHERE ino = ? AND chunk_index >= ?",
+		);
+		this.stmtRenameDentry = this.db.prepare(
+			"UPDATE dentries SET parent_ino = ?, name = ? WHERE parent_ino = ? AND name = ?",
 		);
 
 		// Versioning prepared statements.
@@ -434,33 +446,11 @@ export class SqliteMetadataStore implements FsMetadataStore, FsMetadataStoreVers
 		dstParentIno: number,
 		dstName: string,
 	): Promise<void> {
-		// Look up the source entry.
-		const srcRow = this.stmtLookup.get(srcParentIno, srcName) as
-			| { child_ino: number }
-			| undefined;
-		if (!srcRow) return;
-
-		// Get the child type from the source dentry.
-		const srcDentry = this.db
-			.prepare(
-				"SELECT child_type FROM dentries WHERE parent_ino = ? AND name = ?",
-			)
-			.get(srcParentIno, srcName) as { child_type: string } | undefined;
-		if (!srcDentry) return;
-
 		// Remove destination if it exists.
 		this.stmtRemoveDentry.run(dstParentIno, dstName);
 
-		// Remove source entry.
-		this.stmtRemoveDentry.run(srcParentIno, srcName);
-
-		// Create destination entry.
-		this.stmtCreateDentry.run(
-			dstParentIno,
-			dstName,
-			srcRow.child_ino,
-			srcDentry.child_type,
-		);
+		// Move source to destination in a single UPDATE (no lookup needed).
+		this.stmtRenameDentry.run(dstParentIno, dstName, srcParentIno, srcName);
 	}
 
 	// -- Path resolution --
@@ -612,9 +602,7 @@ export class SqliteMetadataStore implements FsMetadataStore, FsMetadataStoreVers
 			block_key: string;
 		}>;
 		const keys = rows.map((row) => row.block_key);
-		this.db
-			.prepare("DELETE FROM chunks WHERE ino = ? AND chunk_index >= ?")
-			.run(ino, startIndex);
+		this.stmtDeleteChunksFromDel.run(ino, startIndex);
 		return keys;
 	}
 
