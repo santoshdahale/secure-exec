@@ -902,7 +902,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	}
 
 	private async waitForManagedResources(): Promise<void> {
-		const graceDeadline = Date.now() + 5000;
+		const graceDeadline = Date.now() + 100;
 
 		// Give async bridge callbacks a moment to register their host-side handles.
 		while (!this.disposed && !this.hasManagedResources() && Date.now() < graceDeadline) {
@@ -1045,15 +1045,8 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		// use CJS exec mode with a dynamic import() wrapper instead of V8's
 		// native ESM "run" mode. The native ESM resolver makes a synchronous
 		// IPC call per import, which is prohibitively slow for packages with
-		// large dependency trees (e.g., PI has hundreds of @sinclair/typebox
-		// sub-modules). CJS mode uses the in-process require-setup transform
-		// which is orders of magnitude faster.
-		// If the code was already CJS-transformed by _resolveEntry (has the
-		// require-esm marker), use exec mode so require() and __dirname work.
-		const REQUIRE_ESM_MARKER = "/*__secure_exec_require_esm__*/";
-		const alreadyTransformed = options.code.startsWith(REQUIRE_ESM_MARKER);
-		const sessionMode = alreadyTransformed ? "exec" : (options.mode === "run" || entryIsEsm ? "run" : "exec");
-		const userCode = entryIsEsm && !alreadyTransformed
+		const sessionMode = options.mode === "run" || entryIsEsm ? "run" : "exec";
+		const userCode = entryIsEsm
 			? options.code
 			: (() => {
 					const transformed = transformSourceForRequireSync(
@@ -1289,7 +1282,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			this._currentSession = session;
 
 			// Execute in V8 session
-			console.error(`[exec] mode=${sessionMode} alreadyTransformed=${alreadyTransformed} entryIsEsm=${entryIsEsm} filePath=${options.filePath} codeLen=${userCode.length}`);
+			console.error(`[exec] mode=${sessionMode} entryIsEsm=${entryIsEsm} filePath=${options.filePath} codeLen=${userCode.length}`);
 			const result = await session.execute({
 				bridgeCode,
 				postRestoreScript,
@@ -1330,7 +1323,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				},
 			});
 
-			if (!result.error) {
+			if (options.mode === "exec" && !result.error) {
 				await this.waitForManagedResources();
 			}
 

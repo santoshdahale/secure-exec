@@ -900,21 +900,6 @@ class NodeRuntimeDriver implements RuntimeDriver {
           if (hostPath) {
             try {
               const content = readFileSync(hostPath, 'utf-8');
-              // Check if this is an ESM module. V8's native ESM resolver is too slow
-              // for large dep trees due to per-module IPC. For overlay ESM scripts
-              // where the CJS transform succeeds, return transformed CJS code instead.
-              if (this._isOverlayEsmEntry(hostPath)) {
-                const transformed = transformSourceForRequireSync(content, scriptPath);
-                const REQUIRE_ESM_MARKER = "/*__secure_exec_require_esm__*/";
-                if (transformed.startsWith(REQUIRE_ESM_MARKER)) {
-                  console.error(`[_resolveEntry] ESM→CJS transform OK: ${scriptPath} (${content.length}→${transformed.length})`);
-                  return { code: transformed, filePath: scriptPath };
-                }
-                // CJS transform failed (e.g., top-level await). Fall through to
-                // V8 native ESM "run" mode. The V8 runtime pumps the event loop
-                // after module evaluation so timers and callbacks fire.
-                console.error(`[_resolveEntry] ESM→CJS failed, using V8 ESM run mode: ${scriptPath}`);
-              }
               return { code: content, filePath: scriptPath };
             } catch {
               // Fall through to the error below
@@ -927,26 +912,5 @@ class NodeRuntimeDriver implements RuntimeDriver {
 
     // No script or -e flag — read from stdin (not supported yet)
     throw new Error('node: missing script argument (stdin mode not supported)');
-  }
-
-  /**
-   * Check if a host filesystem path points to an ESM module by reading
-   * the nearest package.json for "type": "module". Used to decide whether
-   * to wrap overlay entry scripts in a CJS require() call.
-   */
-  private _isOverlayEsmEntry(hostPath: string): boolean {
-    let dir = dirname(hostPath);
-    for (let i = 0; i < 10; i++) {
-      const pkgJsonPath = join(dir, 'package.json');
-      try {
-        const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf-8'));
-        return pkg.type === 'module';
-      } catch {
-        const parent = dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-      }
-    }
-    return false;
   }
 }

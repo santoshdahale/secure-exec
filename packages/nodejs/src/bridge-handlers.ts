@@ -3858,6 +3858,11 @@ export function buildChildProcessBridgeHandlers(deps: ChildProcessBridgeDeps): B
 
 	// Serialize a child process event and push it into the V8 isolate
 	const dispatchEvent = (sessionId: number, type: "stdout" | "stderr" | "exit", data?: Uint8Array | number) => {
+		if (type === "stdout" || type === "stderr") {
+			console.error(`[child-${type}] sessionId=${sessionId} bytes=${(data as Uint8Array)?.length ?? 0} preview=${Buffer.from(data as Uint8Array).toString('utf8').slice(0,80)}`);
+		} else {
+			console.error(`[child-exit] sessionId=${sessionId} code=${data}`);
+		}
 		try {
 			let eventType: "child_stdout" | "child_stderr" | "child_exit";
 			let payload: ChildProcessStreamPayload;
@@ -3930,7 +3935,9 @@ export function buildChildProcessBridgeHandlers(deps: ChildProcessBridgeDeps): B
 
 	handlers[K.childProcessStdinWrite] = (sessionId: unknown, data: unknown) => {
 		const d = data instanceof Uint8Array ? data : Buffer.from(String(data), "base64");
-		sessions.get(Number(sessionId))?.writeStdin(d);
+		const proc = sessions.get(Number(sessionId));
+		console.error(`[stdin-write] sessionId=${sessionId} hasProc=${!!proc} bytes=${d.length} data=${Buffer.from(d).toString('utf8').slice(0,80)}`);
+		proc?.writeStdin(d);
 	};
 
 	handlers[K.childProcessStdinClose] = (sessionId: unknown) => {
