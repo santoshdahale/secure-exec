@@ -1414,8 +1414,13 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			let exports: T | undefined;
 			if (options.mode === "run" && result.exports) {
 				try {
-					const { deserialize } = await import("node:v8");
-					exports = deserialize(result.exports) as T;
+					if (typeof (globalThis as Record<string, unknown>).Bun !== "undefined") {
+						// Bun: JSON codec — payload is JSON bytes
+						exports = JSON.parse(Buffer.from(result.exports).toString("utf-8")) as T;
+					} else {
+						const { deserialize } = await import("node:v8");
+						exports = deserialize(result.exports) as T;
+					}
 				} catch {
 					exports = undefined;
 				}

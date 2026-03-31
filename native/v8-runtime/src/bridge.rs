@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
 use v8::MapFnTo;
@@ -10,6 +11,28 @@ use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
 use crate::host_call::BridgeCallContext;
+
+// JSON codec flag: when true, use JSON.stringify/JSON.parse instead of V8
+// ValueSerializer/ValueDeserializer for IPC payloads. Activated by
+// SECURE_EXEC_V8_CODEC=json for runtimes whose node:v8 module doesn't
+// produce real V8 serialization format (e.g. Bun).
+static USE_JSON_CODEC: AtomicBool = AtomicBool::new(false);
+
+/// Initialize the codec from the SECURE_EXEC_V8_CODEC environment variable.
+/// Call once at process startup before any sessions are created.
+pub fn init_codec() {
+    if let Ok(val) = std::env::var("SECURE_EXEC_V8_CODEC") {
+        if val == "json" {
+            USE_JSON_CODEC.store(true, Ordering::Relaxed);
+            eprintln!("secure-exec-v8: using JSON codec for IPC payloads");
+        }
+    }
+}
+
+/// Returns true if the JSON codec is active.
+pub fn is_json_codec() -> bool {
+    USE_JSON_CODEC.load(Ordering::Relaxed)
+}
 
 /// External references for V8 snapshot serialization.
 /// Maps function pointer indices in the snapshot to current addresses.
@@ -50,10 +73,14 @@ impl v8::ValueDeserializerImpl for DefaultDeserializerDelegate {}
 /// Serialize a V8 value to bytes using V8's built-in ValueSerializer.
 /// Handles all V8 types natively: primitives, strings, arrays, objects,
 /// Uint8Array, Date, Map, Set, RegExp, Error, and circular references.
+/// When JSON codec is active, uses JSON.stringify instead.
 pub fn serialize_v8_value(
     scope: &mut v8::HandleScope,
     value: v8::Local<v8::Value>,
 ) -> Result<Vec<u8>, String> {
+    if is_json_codec() {
+        return serialize_json_value(scope, value);
+    }
     let context = scope.get_current_context();
     let serializer = v8::ValueSerializer::new(scope, Box::new(DefaultSerializerDelegate));
     serializer.write_header();
@@ -85,6 +112,10 @@ pub fn deserialize_v8_value<'s>(
     scope: &mut v8::HandleScope<'s>,
     data: &[u8],
 ) -> Result<v8::Local<'s, v8::Value>, String> {
+    // When JSON codec is active, incoming payloads are JSON, not V8 binary
+    if is_json_codec() {
+        return deserialize_json_value(scope, data);
+    }
     let context = scope.get_current_context();
     let deserializer =
         v8::ValueDeserializer::new(scope, Box::new(DefaultDeserializerDelegate), data);
@@ -94,6 +125,32 @@ pub fn deserialize_v8_value<'s>(
     deserializer
         .read_value(context)
         .ok_or_else(|| "V8 ValueDeserializer: failed to deserialize value".to_string())
+}
+
+/// Serialize a V8 value to JSON bytes using V8's built-in JSON.stringify.
+/// Used when SECURE_EXEC_V8_CODEC=json for runtimes like Bun.
+pub fn serialize_json_value(
+    scope: &mut v8::HandleScope,
+    value: v8::Local<v8::Value>,
+) -> Result<Vec<u8>, String> {
+    let context = scope.get_current_context();
+    let json_str = v8::json::stringify(scope, value)
+        .ok_or_else(|| "JSON.stringify failed".to_string())?;
+    let _ = context; // context used implicitly by stringify
+    Ok(json_str.to_rust_string_lossy(scope).into_bytes())
+}
+
+/// Deserialize JSON bytes to a V8 value using V8's built-in JSON.parse.
+pub fn deserialize_json_value<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    data: &[u8],
+) -> Result<v8::Local<'s, v8::Value>, String> {
+    let json_str = std::str::from_utf8(data)
+        .map_err(|e| format!("JSON codec: invalid UTF-8: {}", e))?;
+    let v8_str = v8::String::new(scope, json_str)
+        .ok_or_else(|| "JSON codec: failed to create V8 string".to_string())?;
+    v8::json::parse(scope, v8_str)
+        .ok_or_else(|| "JSON codec: JSON.parse failed".to_string())
 }
 
 /// Pre-allocated serialization buffers reused across bridge calls within a session.

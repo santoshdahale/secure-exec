@@ -14,7 +14,14 @@ import { Duplex, PassThrough } from "node:stream";
 import { readFileSync, realpathSync, existsSync } from "node:fs";
 import { dirname as pathDirname, join as pathJoin, resolve as pathResolve } from "node:path";
 import { createRequire } from "node:module";
-import { serialize } from "node:v8";
+import v8Mod from "node:v8";
+
+// Bun's node:v8 module doesn't produce real V8 serialization format
+const _isBun = typeof (globalThis as Record<string, unknown>).Bun !== "undefined";
+function ipcSerialize(value: unknown): Buffer {
+	if (_isBun) return Buffer.from(JSON.stringify(value), "utf-8");
+	return Buffer.from(v8Mod.serialize(value));
+}
 import {
 	randomFillSync,
 	randomUUID,
@@ -4884,7 +4891,7 @@ export function buildNetworkBridgeHandlers(deps: NetworkBridgeDeps): NetworkBrid
 						registerPendingHttpResponse(options.serverId, requestId, resolve);
 					});
 					state.pendingRequests += 1;
-					deps.sendStreamEvent("http_request", serialize({
+					deps.sendStreamEvent("http_request", ipcSerialize({
 						requestId,
 						serverId: options.serverId,
 						request: requestJson,

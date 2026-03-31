@@ -13,6 +13,26 @@ import { IpcClient } from "./ipc-client.js";
 import type { BinaryFrame } from "./ipc-binary.js";
 import type { V8Session, V8SessionOptions } from "./session.js";
 
+// Bun's node:v8 module doesn't produce real V8 serialization format.
+// Detect Bun and use JSON codec instead.
+const isBun = typeof (globalThis as Record<string, unknown>).Bun !== "undefined";
+
+/** Serialize a value for IPC — JSON when running under Bun, V8 otherwise. */
+function ipcSerialize(value: unknown): Buffer {
+	if (isBun) {
+		return Buffer.from(JSON.stringify(value), "utf-8");
+	}
+	return Buffer.from(v8.serialize(value));
+}
+
+/** Deserialize an IPC payload — JSON when running under Bun, V8 otherwise. */
+function ipcDeserialize(buf: Buffer | Uint8Array): unknown {
+	if (isBun) {
+		return JSON.parse(Buffer.from(buf).toString("utf-8"));
+	}
+	return v8.deserialize(buf);
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -104,6 +124,9 @@ export async function createV8Runtime(
 		...process.env as Record<string, string>,
 		SECURE_EXEC_V8_TOKEN: authToken,
 	};
+	if (isBun) {
+		childEnv.SECURE_EXEC_V8_CODEC = "json";
+	}
 	if (options?.maxSessions != null) {
 		childEnv.SECURE_EXEC_V8_MAX_SESSIONS = String(options.maxSessions);
 	}
@@ -115,6 +138,16 @@ export async function createV8Runtime(
 	});
 	// Forward V8 runtime stderr to host stderr for debugging
 	child.stderr?.pipe(process.stderr);
+
+	// Message routing: session-level handlers registered per session_id.
+	// Declared before the exit handler so Bun's eager event delivery
+	// doesn't hit the temporal dead zone.
+	const sessionHandlers = new Map<
+		string,
+		(frame: BinaryFrame) => void
+	>();
+	// Per-session reject functions for rejecting in-flight execute() promises
+	const sessionRejects = new Map<string, (err: Error) => void>();
 
 	// Track whether the process is alive
 	let processAlive = true;
@@ -186,14 +219,6 @@ export async function createV8Runtime(
 	// Connect IPC client
 	let ipcClient: IpcClient | null = null;
 	let disposed = false;
-
-	// Message routing: session-level handlers registered per session_id
-	const sessionHandlers = new Map<
-		string,
-		(frame: BinaryFrame) => void
-	>();
-	// Per-session reject functions for rejecting in-flight execute() promises
-	const sessionRejects = new Map<string, (err: Error) => void>();
 
 	ipcClient = new IpcClient({
 		socketPath,
@@ -336,8 +361,8 @@ export async function createV8Runtime(
 						throw new Error("IPC client is not connected");
 					}
 
-					// Inject globals — V8-serialize { processConfig, osConfig }
-					const globalsPayload = v8.serialize({
+					// Inject globals — serialize { processConfig, osConfig }
+					const globalsPayload = ipcSerialize({
 						processConfig: execOptions.processConfig,
 						osConfig: execOptions.osConfig,
 					});
@@ -373,7 +398,7 @@ export async function createV8Runtime(
 									// Deserialize args and call handler
 									void (async () => {
 										try {
-											const args = v8.deserialize(
+											const args = ipcDeserialize(
 												frame.payload,
 											) as unknown[];
 											const result = await handler(
@@ -400,7 +425,7 @@ export async function createV8Runtime(
 													status: 0,
 													payload:
 														result !== undefined
-															? Buffer.from(v8.serialize(result))
+															? ipcSerialize(result)
 															: Buffer.alloc(0),
 												});
 											}

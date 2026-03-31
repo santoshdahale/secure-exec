@@ -294,6 +294,9 @@ fn main() {
     // Close all inherited FDs > 2 before doing anything else
     close_inherited_fds();
 
+    // Initialize codec from env before any sessions are created
+    bridge::init_codec();
+
     // Initialize V8 platform on the main thread before any session threads
     isolate::init_v8_platform();
 
