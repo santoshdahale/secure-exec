@@ -1,16 +1,11 @@
 import { describe } from "vitest";
-import { NodeRuntime, allowAllNetwork } from "../../src/index.js";
+import { allowAllNetwork } from "../../src/index.js";
 import type { NodeRuntimeOptions } from "../../src/runtime.js";
-import {
-	createBrowserDriver,
-	createBrowserRuntimeDriverFactory,
-} from "@secure-exec/browser";
 import { runNodeCryptoSuite } from "./node/crypto.js";
 import { runNodeNetworkSuite } from "./node/network.js";
 import { runNodePolyfillSuite } from "./node/polyfills.js";
 import {
 	runNodeSuite,
-	type NodeRuntimeTarget,
 	type NodeSuiteContext,
 } from "./node/runtime.js";
 
@@ -22,63 +17,31 @@ type DisposableRuntime = {
 	terminate(): Promise<void>;
 };
 
-const RUNTIME_TARGETS: NodeRuntimeTarget[] = ["node", "browser"];
 const NODE_SUITES: NodeSharedSuite[] = [runNodeSuite, runNodeNetworkSuite, runNodeCryptoSuite, runNodePolyfillSuite];
-function isNodeTargetAvailable(): boolean {
-	return typeof process !== "undefined" && Boolean(process.versions?.node);
-}
-
-function isBrowserTargetAvailable(): boolean {
-	return typeof window !== "undefined" && typeof Worker !== "undefined";
-}
-
-function isTargetAvailable(target: NodeRuntimeTarget): boolean {
-	if (target === "node") {
-		return isNodeTargetAvailable();
-	}
-	return isBrowserTargetAvailable();
-}
 
 async function importNodeEntrypoint() {
 	const entrypointUrl = new URL("../../src/index.js", import.meta.url).href;
 	return import(/* @vite-ignore */ entrypointUrl);
 }
 
-function createSuiteContext(target: NodeRuntimeTarget): NodeSuiteContext {
+function createSuiteContext(): NodeSuiteContext {
 	const runtimes = new Set<DisposableRuntime>();
 
 	return {
-		target,
+		target: "node",
 		async createRuntime(options: RuntimeOptions = {}) {
-			if (target === "node") {
-				const {
-					NodeRuntime: NodeRuntimeClass,
-					createNodeDriver,
-					createNodeRuntimeDriverFactory,
-				} = await importNodeEntrypoint();
-				const runtime = new NodeRuntimeClass({
-					...options,
-					systemDriver: createNodeDriver({
-						useDefaultNetwork: true,
-						permissions: allowAllNetwork,
-					}),
-					runtimeDriverFactory: createNodeRuntimeDriverFactory(),
-				});
-				runtimes.add(runtime);
-				return runtime;
-			}
-
-			const systemDriver = await createBrowserDriver({
-				filesystem: "memory",
-				useDefaultNetwork: true,
-				permissions: allowAllNetwork,
-			});
-			const runtime = new NodeRuntime({
+			const {
+				NodeRuntime: NodeRuntimeClass,
+				createNodeDriver,
+				createNodeRuntimeDriverFactory,
+			} = await importNodeEntrypoint();
+			const runtime = new NodeRuntimeClass({
 				...options,
-				systemDriver,
-				runtimeDriverFactory: createBrowserRuntimeDriverFactory({
-					workerUrl: new URL("../../src/browser/worker.ts", import.meta.url),
+				systemDriver: createNodeDriver({
+					useDefaultNetwork: true,
+					permissions: allowAllNetwork,
 				}),
+				runtimeDriverFactory: createNodeRuntimeDriverFactory(),
 			});
 			runtimes.add(runtime);
 			return runtime;
@@ -99,18 +62,8 @@ function createSuiteContext(target: NodeRuntimeTarget): NodeSuiteContext {
 }
 
 describe("node runtime integration suite", () => {
-	for (const target of RUNTIME_TARGETS) {
-		const label = `runtime-target:${target}`;
-		if (!isTargetAvailable(target)) {
-			describe.skip(label, () => {});
-			continue;
-		}
-
-		const context = createSuiteContext(target);
-		describe(label, () => {
-			for (const runSuite of NODE_SUITES) {
-				runSuite(context);
-			}
-		});
+	const context = createSuiteContext();
+	for (const runSuite of NODE_SUITES) {
+		runSuite(context);
 	}
 });

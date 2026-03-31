@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import type { StdioEvent } from "../../../src/shared/api-types.js";
 import type { NodeRuntimeOptions } from "../../../src/runtime.js";
 
-export type NodeRuntimeTarget = "node" | "browser";
+export type NodeRuntimeTarget = "node";
 
 type RuntimeOptions = Omit<NodeRuntimeOptions, "systemDriver" | "runtimeDriverFactory">;
 

@@ -178,9 +178,7 @@ flowchart TB
 - DNS operations return deterministic `ENOSYS` errors
 
 **Outside the worker (host):**
-- The browser isolate spawns workers, dispatches requests by ID, and correlates responses
-- `createBrowserDriver()` configures OPFS or in-memory filesystem and fetch-based networking
-- Node-only runtime options (like `memoryLimit`) are validated and rejected at creation time
+- `createNodeDriver()` configures filesystem, networking, and permissions
 
 ## Permission Flow
 

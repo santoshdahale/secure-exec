@@ -50,14 +50,12 @@
         "group": "System Drivers",
         "pages": [
           "system-drivers/overview",
-          "system-drivers/node",
-          "system-drivers/browser"
+          "system-drivers/node"
         ]
       },
       {
         "group": "Features",
         "pages": [
-          "features/typescript",
           "features/permissions",
           "features/filesystem",
           "features/virtual-filesystem",
@@ -98,14 +96,6 @@
         "group": "Experimental",
         "pages": [
           {
-            "group": "Runtimes",
-            "pages": [
-              "runtimes/overview",
-              "runtimes/node",
-              "runtimes/python"
-            ]
-          },
-          {
             "group": "Kernel",
             "pages": [
               "kernel/quickstart",
@@ -116,19 +106,9 @@
             ]
           },
           {
-            "group": "WasmVM",
-            "pages": [
-              "wasmvm/supported-commands"
-            ]
-          },
-          {
             "group": "Reference",
             "pages": [
-              "posix-compatibility",
-              "os-test-conformance-report",
-              "libc-test-conformance-report",
-              "nodejs-conformance-report",
-              "python-compatibility"
+              "nodejs-conformance-report"
             ]
           }
         ]

@@ -25,10 +25,9 @@
     "check-types": "tsc --noEmit",
     "check-types:test": "vitest --typecheck --run tests/types/",
     "build": "tsc",
-    "test:test-suite": "vitest run tests/test-suite.test.ts tests/test-suite-python.test.ts",
+    "test:test-suite": "vitest run tests/test-suite.test.ts",
     "test:runtime-driver": "vitest run tests/runtime-driver/*.test.ts",
     "test:integration:node": "pnpm run test:test-suite && pnpm run test:runtime-driver",
-    "test:integration:browser": "vitest run --config vitest.browser.config.ts tests/test-suite/node.test.ts tests/runtime-driver/browser/runtime.test.ts",
     "test:project-matrix": "vitest run tests/project-matrix.test.ts",
     "test:e2e-docker": "vitest run tests/e2e-docker.test.ts",
     "test": "vitest run",
@@ -37,10 +36,6 @@
   "dependencies": {
     "@secure-exec/core": "workspace:*",
     "@secure-exec/nodejs": "workspace:*"
-  },
-  "optionalDependencies": {
-    "@secure-exec/browser": "workspace:*",
-    "@secure-exec/python": "workspace:*"
   },
   "devDependencies": {
     "@mariozechner/pi-coding-agent": "^0.60.0",

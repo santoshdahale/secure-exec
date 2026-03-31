@@ -29,42 +29,24 @@ icon: "compass"
 Every sandbox has two layers:
 
 - **System driver** provides host capabilities: filesystem, network, child processes, and permissions.
-- The execution environment runs code in a V8 isolate (Node) or Web Worker (browser).
+- The execution environment runs code in a V8 isolate.
 
 All host capabilities are deny-by-default. You opt in to what sandboxed code can access.
 
 ## Create a runtime
 
-<Tabs>
-  <Tab title="Node">
-    ```ts
-    import {
-      NodeRuntime,
-      createNodeDriver,
-      createNodeRuntimeDriverFactory,
-    } from "secure-exec";
+```ts
+import {
+  NodeRuntime,
+  createNodeDriver,
+  createNodeRuntimeDriverFactory,
+} from "secure-exec";
 
-    const runtime = new NodeRuntime({
-      systemDriver: createNodeDriver(),
-      runtimeDriverFactory: createNodeRuntimeDriverFactory(),
-    });
-    ```
-  </Tab>
-  <Tab title="Browser">
-    ```ts
-    import {
-      NodeRuntime,
-      createBrowserDriver,
-      createBrowserRuntimeDriverFactory,
-    } from "@secure-exec/browser";
-
-    const runtime = new NodeRuntime({
-      systemDriver: await createBrowserDriver({ filesystem: "memory" }),
-      runtimeDriverFactory: createBrowserRuntimeDriverFactory(),
-    });
-    ```
-  </Tab>
-</Tabs>
+const runtime = new NodeRuntime({
+  systemDriver: createNodeDriver(),
+  runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+});
+```
 
 ## Execute code
 

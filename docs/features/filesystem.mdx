@@ -57,22 +57,6 @@ try {
 
 Source: [examples/features/src/filesystem.ts](https://github.com/rivet-dev/secure-exec/blob/main/examples/features/src/filesystem.ts)
 
-## OPFS (browser)
-
-Persistent filesystem using the Origin Private File System API. This is the default for `createBrowserDriver()`.
-
-```ts
-import { createBrowserDriver } from "@secure-exec/browser";
-
-// OPFS (default)
-const driver = await createBrowserDriver({ filesystem: "opfs" });
-
-// In-memory fallback
-const memDriver = await createBrowserDriver({ filesystem: "memory" });
-```
-
-<Info>OPFS does not support atomic rename operations.</Info>
-
 ## Node filesystem
 
 Thin wrapper around Node.js `fs/promises`. Provides real host filesystem access (gated by permissions).

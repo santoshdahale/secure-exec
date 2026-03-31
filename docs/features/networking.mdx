@@ -111,31 +111,16 @@ Source: [examples/features/src/networking.ts](https://github.com/rivet-dev/secur
 
 ## Quick setup
 
-<Tabs>
-  <Tab title="Node">
-    ```ts
-    import { createNodeDriver, allowAllNetwork } from "secure-exec";
+```ts
+import { createNodeDriver, allowAllNetwork } from "secure-exec";
 
-    const driver = createNodeDriver({
-      useDefaultNetwork: true,
-      permissions: { ...allowAllNetwork },
-    });
-    ```
+const driver = createNodeDriver({
+  useDefaultNetwork: true,
+  permissions: { ...allowAllNetwork },
+});
+```
 
-    The Node adapter supports `fetch`, DNS lookups, and low-level HTTP requests.
-  </Tab>
-  <Tab title="Browser">
-    ```ts
-    import { createBrowserDriver } from "@secure-exec/browser";
-
-    const driver = await createBrowserDriver({
-      useDefaultNetwork: true,
-    });
-    ```
-
-    The browser adapter supports `fetch` only. DNS and low-level HTTP are not available.
-  </Tab>
-</Tabs>
+The Node adapter supports `fetch`, DNS lookups, and low-level HTTP requests.
 
 ## Network adapters
 
